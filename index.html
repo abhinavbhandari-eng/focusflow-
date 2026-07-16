@@ -162,8 +162,11 @@
       <div id="planSteps"></div>
     </div>
     <div class="card">
-      <h2>🧩 Bite-Sized Chunks</h2>
-      <p class="muted">Big content broken into small pieces so it's not overwhelming.</p>
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <h2 style="margin:0;">🧩 Bite-Sized Chunks</h2>
+        <button class="btn ghost" id="chunkModeBtn" style="padding:6px 12px; font-size:0.8rem; background:var(--primary-light); color:var(--primary); border:1px solid var(--primary);" onclick="toggleChunkMode()">🎯 Focus Mode</button>
+      </div>
+      <p class="muted" style="margin-top:4px;">Big content broken into small pieces so it's not overwhelming.</p>
       <div id="chunksOut" style="margin-top:12px;"></div>
     </div>
     <div class="card"><h2>⭐ Key Points to Remember</h2><div id="keyOut" style="margin-top:8px;"></div></div>
@@ -721,6 +724,71 @@ document.getElementById('processBtn').onclick=async()=>{
 };
 
 /* ---------- Render ---------- */
+let _currentChunkIdx = 0;
+let _chunkViewMode = 'carousel';
+
+function toggleChunkMode(){
+  _chunkViewMode = _chunkViewMode === 'carousel' ? 'list' : 'carousel';
+  const btn = document.getElementById('chunkModeBtn');
+  if (btn) {
+    btn.textContent = _chunkViewMode === 'carousel' ? '🎯 Focus Mode' : '📜 Scroll Mode';
+  }
+  renderChunks();
+}
+
+function renderChunks(){
+  const chunks = window._chunks || [];
+  const container = document.getElementById('chunksOut');
+  if(!container) return;
+  if(!chunks.length){
+    container.innerHTML = '<p class="empty">No content.</p>';
+    return;
+  }
+  
+  if(_chunkViewMode === 'carousel'){
+    const c = chunks[_currentChunkIdx];
+    const category = esc(c.category || `Chunk ${_currentChunkIdx + 1}`);
+    const text = esc(c.text || c);
+    
+    container.innerHTML = `
+      <div class="chunk" style="border-left:4px solid var(--primary); padding-left:14px; margin-bottom:12px; min-height:100px;">
+        <div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--primary); font-weight:700; margin-bottom:4px;">${category}</div>
+        <p style="font-size:1rem; line-height:1.6; color:var(--text);">${text}</p>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+        <button class="btn ghost" style="padding:6px 12px; font-size:0.85rem;" onclick="prevChunk()" ${_currentChunkIdx === 0 ? 'disabled' : ''}>◀ Prev</button>
+        <span class="muted" style="font-size:0.9rem; font-weight:600;">${_currentChunkIdx + 1} of ${chunks.length}</span>
+        <button class="btn ghost" style="padding:6px 12px; font-size:0.85rem;" onclick="nextChunk()" ${_currentChunkIdx === chunks.length - 1 ? 'disabled' : ''}>Next ▶</button>
+      </div>
+    `;
+  } else {
+    container.innerHTML = chunks.map((c, i) => {
+      const category = esc(c.category || `Chunk ${i + 1}`);
+      const text = esc(c.text || c);
+      return `
+        <div class="chunk" style="margin-bottom:14px; border-bottom:1px solid var(--border); padding-bottom:12px;">
+          <h4 style="color:var(--primary); font-size:0.9rem; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">${category}</h4>
+          <p>${text}</p>
+        </div>
+      `;
+    }).join('');
+  }
+}
+
+function nextChunk(){
+  if(window._chunks && _currentChunkIdx < window._chunks.length - 1){
+    _currentChunkIdx++;
+    renderChunks();
+  }
+}
+
+function prevChunk(){
+  if(_currentChunkIdx > 0){
+    _currentChunkIdx--;
+    renderChunks();
+  }
+}
+
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function renderOutput(r){
   document.getElementById('planSteps').innerHTML=`
@@ -728,11 +796,9 @@ function renderOutput(r){
     <div class="chunk"><h4>Step 2 · Focus block</h4>Start a 25-min Pomodoro and study the key points.</div>
     <div class="chunk"><h4>Step 3 · Recall</h4>Do the flashcards & quiz WITHOUT looking back.</div>
     <div class="chunk"><h4>Step 4 · Repeat</h4>Review tomorrow, in 3 days, then in a week.</div>`;
-  document.getElementById('chunksOut').innerHTML=r.chunks.map((c,i)=>{
-    const category = esc(c.category || `Chunk ${i+1}`);
-    const text = esc(c.text || c);
-    return `<div class="chunk"><h4>${category}</h4>${text}</div>`;
-  }).join('')||'<p class="empty">No content.</p>';
+  window._chunks = r.chunks || [];
+  window._currentChunkIdx = 0;
+  renderChunks();
   document.getElementById('keyOut').innerHTML=r.keyPoints.map(k=>`<div class="keypoint">⭐ ${esc(k)}</div>`).join('')||'<p class="empty">No key points.</p>';
   document.getElementById('cardCount').textContent=r.cards.length;
   document.getElementById('cardsOut').innerHTML=r.cards.map(c=>`<div class="flashcard" onclick="this.classList.toggle('flipped')"><div class="flash-inner"><div class="flash-face flash-front">${esc(c.q)}</div><div class="flash-face flash-back">${esc(c.a)}</div></div></div>`).join('')||'<p class="empty">No cards.</p>';
