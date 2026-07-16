@@ -662,6 +662,45 @@ function extractYTVideoId(url) {
   return null;
 }
 
+// Aggressively clean Jina/page scraped YouTube content
+function cleanYouTubePageText(raw) {
+  const lines = raw.split('\n');
+  const seen = new Set();
+  const good = [];
+
+  for (let line of lines) {
+    // Strip markdown links [text](url) — keep only the text
+    line = line.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').trim();
+    // Strip remaining bare URLs
+    line = line.replace(/https?:\/\/\S+/g, '').trim();
+    // Strip markdown heading symbols
+    line = line.replace(/^#{1,6}\s+/, '').trim();
+    // Strip leading bullets/dashes
+    line = line.replace(/^[-*•]\s+/, '').trim();
+
+    // Skip empty lines
+    if (!line) continue;
+    // Skip pure timestamps like "0:00", "2:55", "1:23:07"
+    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(line)) continue;
+    // Skip lines that are only numbers
+    if (/^\d+$/.test(line)) continue;
+    // Skip very short lines (likely nav/UI noise)
+    if (line.length < 35) continue;
+    // Skip lines that look like "X views • Y ago" (related video metadata)
+    if (/\d+[KM]?\s+views/.test(line)) continue;
+    // Skip lines that are just social handles or emojis
+    if (/^[@#]/.test(line)) continue;
+    // De-duplicate
+    const key = line.toLowerCase().slice(0, 80);
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    good.push(line);
+  }
+
+  return good.join(' ').replace(/\s{2,}/g, ' ').trim();
+}
+
 async function fetchYouTubeTranscript() {
   const url = document.getElementById('ytInput').value.trim();
   const statusEl = document.getElementById('ytStatus');
@@ -670,66 +709,81 @@ async function fetchYouTubeTranscript() {
     statusEl.innerHTML = msg;
     statusEl.style.color = color || 'var(--muted)';
     statusEl.style.borderLeft = `3px solid ${color || 'var(--border)'}`;
+    statusEl.style.padding = '12px 14px';
+    statusEl.style.background = 'var(--bg)';
+    statusEl.style.borderRadius = '12px';
   };
 
   if (!url) { alert('Please paste a YouTube URL first.'); return; }
   const videoId = extractYTVideoId(url);
-  if (!videoId) { alert('Could not find a valid YouTube video ID in that URL. Make sure it looks like https://www.youtube.com/watch?v=XXXXXXXXXXX'); return; }
+  if (!videoId) { alert('Could not find a valid YouTube video ID. URL should look like: https://www.youtube.com/watch?v=XXXXXXXXXXX'); return; }
 
-  showStatus('⏳ Fetching transcript from YouTube...', 'var(--primary)');
+  showStatus('⏳ Fetching transcript — this may take a few seconds...', 'var(--primary)');
   window._ytTranscript = '';
 
-  // Strategy 1: Jina.ai reader (works for many YT pages and extracts transcripts)
-  try {
-    const res = await fetch('https://r.jina.ai/https://www.youtube.com/watch?v=' + videoId, {
-      headers: { 'Accept': 'text/plain' }
-    });
-    if (res.ok) {
-      const text = await res.text();
-      // Jina returns markdown — look for transcript content
-      const cleaned = text.replace(/\[.*?\]\(.*?\)/g, '').replace(/#{1,6}\s/g, '').trim();
-      if (cleaned.length > 300) {
-        window._ytTranscript = cleaned;
-        showStatus(`✅ Transcript fetched! (${cleaned.length.toLocaleString()} characters). Click "✨ Convert to Study Tools" to continue.`, 'var(--green)');
-        return;
-      }
-    }
-  } catch(e) {}
-
-  // Strategy 2: youtubetranscript.com API (free, no-key public endpoint)
+  // Strategy 1: youtubetranscript.com — returns clean XML with <text> tags
   try {
     const res = await fetch(`https://youtubetranscript.com/?server_vid2=${videoId}`);
     if (res.ok) {
       const text = await res.text();
-      // Extract text from the XML/HTML response
       const matches = text.match(/<text[^>]*>([^<]+)<\/text>/g);
-      if (matches && matches.length > 10) {
-        const transcript = matches.map(m => m.replace(/<[^>]+>/g, '').replace(/&amp;/g,'&').replace(/&#39;/g,"'").replace(/&quot;/g,'"')).join(' ');
+      if (matches && matches.length > 15) {
+        const transcript = matches
+          .map(m => m.replace(/<[^>]+>/g, '')
+            .replace(/&amp;/g,'&').replace(/&#39;/g,"'")
+            .replace(/&quot;/g,'"').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+            .trim())
+          .filter(t => t.length > 1)
+          .join(' ');
         window._ytTranscript = transcript;
-        showStatus(`✅ Transcript fetched! (${transcript.length.toLocaleString()} characters). Click "✨ Convert to Study Tools" to continue.`, 'var(--green)');
+        showStatus(`✅ Transcript fetched! <b>${transcript.length.toLocaleString()} characters</b> of spoken content. Click "✨ Convert to Study Tools" to continue.`, 'var(--green)');
         return;
       }
     }
   } catch(e) {}
 
-  // Strategy 3: Try alternate transcript proxy
+  // Strategy 2: Jina.ai — fetch page content then aggressively clean it
+  showStatus('⏳ Trying alternative fetch method...', 'var(--primary)');
+  try {
+    const res = await fetch('https://r.jina.ai/https://www.youtube.com/watch?v=' + videoId, {
+      headers: { 'Accept': 'text/plain', 'X-Return-Format': 'text' }
+    });
+    if (res.ok) {
+      const raw = await res.text();
+      const cleaned = cleanYouTubePageText(raw);
+      // Cleaned content should be substantial and not just metadata noise
+      if (cleaned.length > 500) {
+        window._ytTranscript = cleaned;
+        showStatus(`✅ Content extracted! <b>${cleaned.length.toLocaleString()} characters</b>. Note: this may include video description rather than transcript. Click "✨ Convert" to continue.`, 'var(--yellow)');
+        return;
+      }
+    }
+  } catch(e) {}
+
+  // Strategy 3: Jina via youtubetranscript.com
   try {
     const res = await fetch(`https://r.jina.ai/https://youtubetranscript.com/?server_vid2=${videoId}`, {
       headers: { 'Accept': 'text/plain' }
     });
     if (res.ok) {
-      const text = await res.text();
-      if (text.length > 200) {
-        window._ytTranscript = text;
-        showStatus(`✅ Transcript fetched! (${text.length.toLocaleString()} chars). Click "✨ Convert" to continue.`, 'var(--green)');
+      const raw = await res.text();
+      // Extract transcript lines from the Jina-rendered transcript page
+      const cleaned = cleanYouTubePageText(raw);
+      if (cleaned.length > 400) {
+        window._ytTranscript = cleaned;
+        showStatus(`✅ Transcript fetched! <b>${cleaned.length.toLocaleString()} chars</b>. Click "✨ Convert" to continue.`, 'var(--green)');
         return;
       }
     }
   } catch(e) {}
 
-  // All failed
-  showStatus(`❌ Could not auto-fetch captions for this video. This happens when captions are disabled or the video is private.<br><br>
-    <b>Manual workaround:</b> Open the video on YouTube → click the ⋮ menu → <em>Open transcript</em> → copy the text → paste it in the 📝 Notes tab.`, 'var(--accent)');
+  // All failed — show manual workaround
+  showStatus(`❌ Could not auto-fetch the transcript. This usually means captions are disabled or the video is private.<br><br>
+    <b>Quick workaround (30 sec):</b><br>
+    1. Open the video on YouTube<br>
+    2. Click the <b>⋮ menu</b> below the video → <em>Show transcript</em><br>
+    3. Click <b>Toggle timestamps</b> to hide them<br>
+    4. Select all transcript text → copy → paste into the 📝 Notes tab`, 'var(--accent)');
 }
 
 /* ---------- Offline converter (fallback) ---------- */
