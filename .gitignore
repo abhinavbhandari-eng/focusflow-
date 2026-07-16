@@ -1,0 +1,6 @@
+key.txt
+test_api.js
+.vercel/
+.env
+.env.local
+.DS_Store

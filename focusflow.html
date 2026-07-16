@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#6c4ee0">
+<link rel="manifest" href="manifest.json">
+<title>FocusFlow — ADHD Study Companion</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root {
+    --bg:#f4f1fb; --card:#fff; --primary:#6c4ee0; --primary-light:#ede8fb;
+    --accent:#ff8a5c; --green:#2fbf71; --yellow:#ffd166; --pink:#ff70a6;
+    --text:#2a2a3a; --muted:#7a7a8c; --border:#e6e1f5; --keybg:#fff7e6;
+    --shadow:0 4px 20px rgba(108,78,224,0.12);
+  }
+  [data-theme="dark"] {
+    --bg:#16151f; --card:#232030; --primary:#9b7dff; --primary-light:#2e2a45;
+    --accent:#ff8a5c; --green:#3ad181; --yellow:#ffd166; --pink:#ff70a6;
+    --text:#eceaf5; --muted:#a09db5; --border:#38334f; --keybg:#332c1f;
+    --shadow:0 4px 20px rgba(0,0,0,0.4);
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg);
+    color:var(--text); line-height:1.5; padding-bottom:40px; transition:background 0.3s,color 0.3s; }
+  header { background:linear-gradient(135deg,var(--primary),#9b7dff); color:#fff;
+    padding:22px 20px; text-align:center; border-radius:0 0 24px 24px; box-shadow:var(--shadow);
+    position:relative; }
+  header h1 { font-size:1.6rem; letter-spacing:-0.5px; }
+  header p { opacity:0.9; font-size:0.9rem; margin-top:4px; }
+  .top-btns { position:absolute; top:16px; right:16px; display:flex; gap:8px; }
+  .icon-btn { background:rgba(255,255,255,0.2); border:none; color:#fff; width:38px; height:38px;
+    border-radius:50%; cursor:pointer; font-size:1.1rem; }
+  .container { max-width:820px; margin:20px auto; padding:0 16px; }
+  .card { background:var(--card); border-radius:18px; padding:20px; margin-bottom:20px; box-shadow:var(--shadow); }
+  h2 { font-size:1.15rem; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+  .tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+  .tab { flex:1; min-width:110px; padding:12px; border:none; border-radius:12px;
+    background:var(--primary-light); color:var(--primary); font-weight:600; cursor:pointer; font-size:0.9rem; transition:0.2s; }
+  .tab.active { background:var(--primary); color:#fff; }
+  textarea,input[type=text],input[type=url],input[type=password] { width:100%; padding:12px;
+    border:2px solid var(--border); border-radius:12px; font-size:0.95rem; font-family:inherit;
+    resize:vertical; background:var(--card); color:var(--text); }
+  textarea:focus,input:focus { outline:none; border-color:var(--primary); }
+  .btn { background:var(--primary); color:#fff; border:none; padding:12px 20px; border-radius:12px;
+    font-weight:600; cursor:pointer; font-size:0.95rem; margin-top:10px; transition:0.2s; }
+  .btn:hover { transform:translateY(-2px); }
+  .btn.secondary { background:var(--accent); }
+  .btn.ghost { background:var(--primary-light); color:var(--primary); }
+  .hidden { display:none !important; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .drop { border:2px dashed var(--primary); border-radius:14px; padding:26px; text-align:center;
+    color:var(--muted); cursor:pointer; transition:0.2s; }
+  .drop.over { background:var(--primary-light); }
+  .timer-display { font-size:3.5rem; font-weight:700; text-align:center; color:var(--primary); font-variant-numeric:tabular-nums; }
+  .timer-mode { text-align:center; color:var(--muted); margin-bottom:8px; font-weight:600; }
+  .progress-bar { height:8px; background:var(--primary-light); border-radius:8px; overflow:hidden; margin:12px 0; }
+  .progress-fill { height:100%; background:var(--green); width:0%; transition:width 1s linear; }
+  .chunk { background:var(--primary-light); border-left:5px solid var(--primary); padding:12px 14px; border-radius:10px; margin-bottom:10px; }
+  .chunk h4 { color:var(--primary); font-size:0.85rem; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px; }
+  .keypoint { background:var(--keybg); border-left:5px solid var(--yellow); padding:10px 12px; border-radius:10px; margin-bottom:8px; }
+  .flashcard { perspective:1000px; height:180px; margin:10px 0; cursor:pointer; }
+  .flash-inner { position:relative; width:100%; height:100%; transition:transform 0.5s; transform-style:preserve-3d; }
+  .flashcard.flipped .flash-inner { transform:rotateY(180deg); }
+  .flash-face { position:absolute; width:100%; height:100%; backface-visibility:hidden; border-radius:14px;
+    display:flex; align-items:center; justify-content:center; padding:18px; text-align:center; font-size:1rem; }
+  .flash-front { background:var(--primary); color:#fff; }
+  .flash-back { background:var(--green); color:#fff; transform:rotateY(180deg); }
+  .badge { display:inline-block; background:var(--pink); color:#fff; border-radius:20px; padding:2px 10px; font-size:0.75rem; font-weight:600; }
+  .muted { color:var(--muted); font-size:0.85rem; }
+  .quiz-q { font-weight:600; margin-bottom:6px; }
+  .method-pill { background:var(--green); color:#fff; padding:3px 10px; border-radius:12px; font-size:0.75rem; margin:2px; display:inline-block; }
+  .review-item { display:flex; justify-content:space-between; align-items:center; padding:10px; border-bottom:1px solid var(--border); }
+  .empty { text-align:center; color:var(--muted); padding:20px; }
+  .spinner { border:3px solid var(--primary-light); border-top:3px solid var(--primary); border-radius:50%;
+    width:22px; height:22px; animation:spin 0.8s linear infinite; display:inline-block; vertical-align:middle; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .ai-status { padding:8px 12px; border-radius:10px; font-size:0.85rem; margin-top:8px; }
+  .ai-on { background:var(--primary-light); color:var(--primary); }
+  footer { text-align:center; color:var(--muted); font-size:0.8rem; margin-top:10px; }
+  details summary { cursor:pointer; font-weight:600; color:var(--primary); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🌊 FocusFlow</h1>
+  <p>Study smarter with ADHD-friendly tools</p>
+  <div class="top-btns">
+    <button class="icon-btn" id="themeBtn" title="Toggle dark mode">🌙</button>
+    <button class="icon-btn hidden" id="installBtn" title="Install app">⬇️</button>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- AI SETTINGS -->
+  <div class="card">
+    <details>
+      <summary>🤖 AI Settings (optional — makes summaries & flashcards much smarter)</summary>
+      <div style="margin-top:12px;">
+        <p class="muted" style="margin-bottom:8px;">Connect to any AI provider (Anthropic, OpenAI, local models, etc.). Saved only in <b>your</b> browser and sent directly to the endpoint.</p>
+        <div style="margin-bottom:10px;">
+          <label class="muted" style="display:block; margin-bottom:4px;">API Endpoint URL</label>
+          <input type="text" id="apiUrl" placeholder="https://api.anthropic.com/v1/messages" style="margin-bottom:8px;">
+        </div>
+        <div style="margin-bottom:10px;">
+          <label class="muted" style="display:block; margin-bottom:4px;">Model Name</label>
+          <input type="text" id="apiModel" placeholder="claude-3-5-sonnet-latest" style="margin-bottom:8px;">
+        </div>
+        <div style="margin-bottom:10px;">
+          <label class="muted" style="display:block; margin-bottom:4px;">API Key</label>
+          <input type="password" id="apiKey" placeholder="Enter API key..." style="margin-bottom:8px;">
+        </div>
+        <div class="row">
+          <button class="btn ghost" id="saveKey">Save Settings</button>
+          <button class="btn ghost" id="clearKey">Clear Settings</button>
+        </div>
+        <div class="ai-status ai-on hidden" id="aiStatus"></div>
+        <p class="muted" style="margin-top:8px;">Note: Leaves default Anthropic endpoint if left blank. Local endpoints like Ollama (e.g. <code>http://localhost:11434/v1/chat/completions</code>) do not require an API key.</p>
+      </div>
+    </details>
+  </div>
+
+  <!-- INPUT -->
+  <div class="card">
+    <h2>📥 Add Your Material</h2>
+    <div class="tabs">
+      <button class="tab active" data-in="notes">📝 Notes</button>
+      <button class="tab" data-in="link">🔗 Link</button>
+      <button class="tab" data-in="file">📄 File</button>
+    </div>
+    <div id="in-notes"><textarea id="notesInput" rows="7" placeholder="Paste or type your study notes here..."></textarea></div>
+    <div id="in-link" class="hidden">
+      <input type="url" id="linkInput" placeholder="https://example.com/article">
+      <p class="muted" style="margin-top:6px;">Paste an article link. If a site blocks fetching, copy its text into Notes instead.</p>
+    </div>
+    <div id="in-file" class="hidden">
+      <div class="drop" id="dropZone">
+        <p>📎 Click or drop a file here</p>
+        <p class="muted">Supports .txt, .md, .docx, .pdf</p>
+      </div>
+      <input type="file" id="fileInput" accept=".txt,.md,.csv,.docx,.pdf" class="hidden">
+      <p class="muted" id="fileName" style="margin-top:8px;"></p>
+    </div>
+    <div class="row">
+      <button class="btn" id="processBtn">✨ Convert to Study Tools</button>
+      <button class="btn ghost" id="clearBtn">Clear</button>
+    </div>
+    <p class="muted" style="margin-top:8px;">Becomes: chunked summary • flashcards • practice quiz • spaced-repetition plan.</p>
+  </div>
+
+  <!-- OUTPUT -->
+  <div id="output" class="hidden">
+    <div class="card">
+      <h2>🧭 Your ADHD Study Plan</h2>
+      <div style="margin:10px 0;">
+        <span class="method-pill">Chunking</span><span class="method-pill">Active Recall</span>
+        <span class="method-pill">Spaced Repetition</span><span class="method-pill">Pomodoro Focus</span>
+        <span class="method-pill">Color Cues</span>
+      </div>
+      <div id="planSteps"></div>
+    </div>
+    <div class="card">
+      <h2>🧩 Bite-Sized Chunks</h2>
+      <p class="muted">Big content broken into small pieces so it's not overwhelming.</p>
+      <div id="chunksOut" style="margin-top:12px;"></div>
+    </div>
+    <div class="card"><h2>⭐ Key Points to Remember</h2><div id="keyOut" style="margin-top:8px;"></div></div>
+    <div class="card">
+      <h2>🃏 Flashcards <span class="badge" id="cardCount">0</span></h2>
+      <p class="muted">Tap a card to flip. Active recall builds strong memory.</p>
+      <div id="cardsOut"></div>
+    </div>
+    <div class="card">
+      <h2>❓ Quick Self-Quiz</h2>
+      <p class="muted">Fill-in-the-blank practice — the #1 way to lock in learning.</p>
+      <div id="quizOut" style="margin-top:10px;"></div>
+    </div>
+  </div>
+
+  <!-- TIMER -->
+  <div class="card">
+    <h2>⏱️ Focus Timer (Pomodoro)</h2>
+    <div class="timer-mode" id="timerMode">Focus Time</div>
+    <div class="timer-display" id="timerDisplay">25:00</div>
+    <div class="progress-bar"><div class="progress-fill" id="timerProgress"></div></div>
+    <div class="row" style="justify-content:center;">
+      <button class="btn" id="startTimer">Start</button>
+      <button class="btn ghost" id="pauseTimer">Pause</button>
+      <button class="btn secondary" id="resetTimer">Reset</button>
+    </div>
+    <div class="row" style="justify-content:center; margin-top:10px;">
+      <label class="muted">Focus min: <input type="text" id="focusLen" value="25" style="width:50px; text-align:center;"></label>
+      <label class="muted">Break min: <input type="text" id="breakLen" value="5" style="width:50px; text-align:center;"></label>
+    </div>
+    <p class="muted" style="text-align:center; margin-top:8px;">Completed focus sessions: <b id="sessionCount">0</b> 🍅</p>
+  </div>
+
+  <!-- REVIEW -->
+  <div class="card">
+    <h2>📅 Spaced Repetition Schedule</h2>
+    <p class="muted">Review at growing intervals to remember long-term. Saved sets:</p>
+    <div id="reviewList" style="margin-top:10px;"></div>
+  </div>
+
+  <footer>FocusFlow • Built for ADHD brains 💜 • Data stays in your browser</footer>
+</div>
+
+<script>
+/* ---------- Dark mode ---------- */
+const themeBtn=document.getElementById('themeBtn');
+function applyTheme(t){
+  document.documentElement.setAttribute('data-theme',t);
+  themeBtn.textContent = t==='dark' ? '☀️' : '🌙';
+  localStorage.setItem('ffTheme',t);
+}
+applyTheme(localStorage.getItem('ffTheme') ||
+  (window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'));
+themeBtn.onclick=()=>applyTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark');
+
+/* ---------- Tabs ---------- */
+document.querySelectorAll('.tab').forEach(t=>{
+  t.onclick=()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    ['notes','link','file'].forEach(id=>document.getElementById('in-'+id).classList.add('hidden'));
+    document.getElementById('in-'+t.dataset.in).classList.remove('hidden');
+  };
+});
+
+/* ---------- AI Settings storage ---------- */
+const urlInput = document.getElementById('apiUrl');
+const modelInput = document.getElementById('apiModel');
+const keyInput = document.getElementById('apiKey');
+const aiStatus = document.getElementById('aiStatus');
+
+function refreshKeyStatus(){
+  const url = localStorage.getItem('ffUrl') || '';
+  const model = localStorage.getItem('ffModel') || '';
+  const key = localStorage.getItem('ffKey') || '';
+  
+  urlInput.value = url;
+  modelInput.value = model;
+  
+  if (key || url) {
+    aiStatus.classList.remove('hidden');
+    let displayModel = model || (url.includes('anthropic') ? 'claude-3-5-sonnet-latest' : 'default-model');
+    aiStatus.textContent = `✅ AI mode ON — using ${displayModel} via ${url || 'Anthropic API'}.`;
+    keyInput.value = '';
+    keyInput.placeholder = key ? 'Key saved ✔ (hidden)' : 'Enter API key...';
+  } else {
+    aiStatus.classList.add('hidden');
+    keyInput.placeholder = 'Enter API key...';
+  }
+}
+
+document.getElementById('saveKey').onclick = () => {
+  const url = urlInput.value.trim();
+  const model = modelInput.value.trim();
+  const key = keyInput.value.trim();
+  
+  localStorage.setItem('ffUrl', url);
+  localStorage.setItem('ffModel', model);
+  if (key) {
+    localStorage.setItem('ffKey', key);
+  }
+  refreshKeyStatus();
+  alert('AI settings saved.');
+};
+
+document.getElementById('clearKey').onclick = () => {
+  localStorage.removeItem('ffUrl');
+  localStorage.removeItem('ffModel');
+  localStorage.removeItem('ffKey');
+  urlInput.value = '';
+  modelInput.value = '';
+  keyInput.value = '';
+  refreshKeyStatus();
+  alert('AI settings cleared.');
+};
+
+refreshKeyStatus();
+
+/* ---------- PDF.js worker ---------- */
+if(window.pdfjsLib){
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+/* ---------- File upload ---------- */
+const dropZone=document.getElementById('dropZone');
+const fileInput=document.getElementById('fileInput');
+let fileText='';
+dropZone.onclick=()=>fileInput.click();
+dropZone.ondragover=e=>{e.preventDefault();dropZone.classList.add('over');};
+dropZone.ondragleave=()=>dropZone.classList.remove('over');
+dropZone.ondrop=e=>{e.preventDefault();dropZone.classList.remove('over');handleFile(e.dataTransfer.files[0]);};
+fileInput.onchange=e=>handleFile(e.target.files[0]);
+
+async function handleFile(f){
+  if(!f) return;
+  const nameEl=document.getElementById('fileName');
+  nameEl.textContent='Reading: '+f.name+' ...';
+  fileText='';
+  const ext=f.name.split('.').pop().toLowerCase();
+  try{
+    if(ext==='docx'){
+      const buf=await f.arrayBuffer();
+      fileText=(await mammoth.extractRawText({arrayBuffer:buf})).value;
+    } else if(ext==='pdf'){
+      const buf=await f.arrayBuffer();
+      const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+      let out='';
+      for(let p=1;p<=pdf.numPages;p++){
+        const page=await pdf.getPage(p);
+        out+=(await page.getTextContent()).items.map(i=>i.str).join(' ')+'\n';
+      }
+      fileText=out;
+    } else if(ext==='doc'){
+      nameEl.textContent='⚠️ Old .doc not supported. Save as .docx, .pdf, or .txt.'; return;
+    } else {
+      fileText=await f.text();
+    }
+    if(fileText.trim().length<10){
+      nameEl.textContent='⚠️ No readable text found. If it\'s a scanned PDF (image), there\'s no selectable text to read.';
+    } else {
+      nameEl.textContent='✅ Loaded: '+f.name+' ('+fileText.trim().length+' chars)';
+    }
+  }catch(err){
+    nameEl.textContent='❌ Error reading '+f.name+'. Try converting to .txt or .pdf.';
+    console.error(err);
+  }
+}
+
+/* ---------- Get input text ---------- */
+async function getInputText(){
+  const active=document.querySelector('.tab.active').dataset.in;
+  if(active==='notes') return document.getElementById('notesInput').value.trim();
+  if(active==='file') return fileText.trim();
+  if(active==='link'){
+    const url=document.getElementById('linkInput').value.trim();
+    if(!url) return '';
+    try{ const res=await fetch('https://r.jina.ai/'+url); if(res.ok) return (await res.text()).trim(); }catch(e){}
+    alert("Couldn't fetch that link. Copy the article text into Notes instead."); return '';
+  }
+  return '';
+}
+
+/* ---------- Offline converter (fallback) ---------- */
+function cleanText(t){ 
+  return t.replace(/[^\S\r\n]+/g, ' ').replace(/\[[0-9]+\]/g, '').trim(); 
+}
+function splitSentences(t){
+  const cleaned = cleanText(t);
+  const lines = cleaned.split(/\r?\n/);
+  const result = [];
+  lines.forEach(line => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    const sentences = trimmed.match(/[^.!?]+[.!?]+/g);
+    if (sentences) {
+      result.push(...sentences.map(s => s.trim()));
+    } else {
+      result.push(trimmed);
+    }
+  });
+  return result;
+}
+const STOP=new Set("the a an and or but of to in on at for with is are was were be been being this that these those it its as by from he she they we you i your our their his her not can will would should could have has had do does did about which who what where when why how whose whom using other another some many more most very also than then only into over under above below during before after between through first second third version history project values value index result output list show files file read write text code app apps system user screen main page layout view data list items item dynamic static standard default system simple basic common general specific detail details info information application applications device devices".split(' '));
+function keywords(s){
+  return s.split(/\W+/).filter(w => {
+    const isAcronym = w.length >= 2 && w === w.toUpperCase() && /^[A-Z]+$/.test(w);
+    return (w.length > 4 || isAcronym) && !STOP.has(w.toLowerCase());
+  });
+}
+function processOffline(text){
+  const sentences=splitSentences(text).map(s=>s.trim()).filter(s=>s.length>15);
+  const freq={}; sentences.forEach(s=>keywords(s).forEach(w=>{w=w.toLowerCase();freq[w]=(freq[w]||0)+1;}));
+  const scored=sentences.map(s=>{let sc=0;keywords(s).forEach(w=>sc+=freq[w.toLowerCase()]||0);return {s,sc:sc/(s.split(' ').length||1)};});
+  const chunks=[]; for(let i=0;i<sentences.length;i+=3) chunks.push(sentences.slice(i,i+3).join(' '));
+  
+  // Prioritize sentences ending with punctuation for key points, and skip near-duplicates
+  const keyPoints = [];
+  const sortedSentences = [...scored]
+    .sort((a, b) => {
+      const aPunct = /[.!?]$/.test(a.s) ? 1 : 0;
+      const bPunct = /[.!?]$/.test(b.s) ? 1 : 0;
+      if (aPunct !== bPunct) return bPunct - aPunct;
+      return b.sc - a.sc;
+    });
+
+  sortedSentences.forEach(x => {
+    if (keyPoints.length >= 6) return;
+    const dup = keyPoints.some(k => similar(k, x.s));
+    if (!dup) keyPoints.push(x.s);
+  });
+
+  // FLASHCARDS — each card uses a DIFFERENT keyword, no repeats, with varied templates
+  const usedTerms=new Set();
+  const templates=[
+    t=>`What does "${t}" refer to in this material?`,
+    t=>`Explain the role of "${t}".`,
+    t=>`Why is "${t}" important here?`,
+    t=>`Define "${t}" in your own words.`,
+    t=>`What do you know about "${t}"?`
+  ];
+  const cards=[];
+  keyPoints.forEach(s=>{
+    const kw=keywords(s)
+      .map(w=>w.toLowerCase())
+      .sort((a,b)=>(freq[b]||0)-(freq[a]||0));
+    const term=kw.find(w=>!usedTerms.has(w));
+    if(term){
+      usedTerms.add(term);
+      const tmpl=templates[cards.length % templates.length];
+      const capitalizedTerm = term.charAt(0).toUpperCase() + term.slice(1);
+      cards.push({ q: tmpl(capitalizedTerm), a: s });
+    }
+  });
+
+  // QUIZ — fill in the blank, each with a distinct answer word
+  const quiz=[]; 
+  const usedAnswers = new Set();
+  // Avoid using question sentences in the quiz
+  const quizSentences = keyPoints.filter(s => !s.endsWith('?'));
+  const sources = quizSentences.length >= 3 ? quizSentences : keyPoints;
+
+  sources.forEach(s=>{
+    if (quiz.length >= 5) return;
+    const kw=keywords(s);
+    if(kw.length){
+      const scoredKw = kw.map(w => {
+        let score = w.length;
+        const idx = s.indexOf(w);
+        if (idx > 0 && /^[A-Z]/.test(w)) {
+          score += 10;
+        }
+        if (w.endsWith('ing') || w.endsWith('ed') || w.endsWith('ly')) {
+          score -= 5;
+        }
+        if (usedAnswers.has(w.toLowerCase())) {
+          score -= 20;
+        }
+        return { w, score };
+      });
+      scoredKw.sort((a, b) => b.score - a.score);
+      const best = scoredKw[0].w;
+      usedAnswers.add(best.toLowerCase());
+      const qText = s.replace(new RegExp('\\b'+best+'\\b','gi'),'_______');
+      quiz.push({q:qText,a:best});
+    }
+  });
+
+  return {chunks:chunks.slice(0,8),keyPoints,cards,quiz};
+}
+
+// simple duplicate-sentence check (shared words ratio)
+function similar(a,b){
+  const wa=new Set(a.toLowerCase().split(/\W+/));
+  const wb=b.toLowerCase().split(/\W+/);
+  let hit=0; wb.forEach(w=>{ if(wa.has(w)) hit++; });
+  return hit/Math.max(wb.length,1) > 0.7;
+}
+
+/* ---------- AI converter ---------- */
+async function processAI(text, key, customUrl, customModel){
+  const defaultUrl = 'https://api.anthropic.com/v1/messages';
+  const url = customUrl || defaultUrl;
+  
+  const defaultModel = url.includes('anthropic') ? 'claude-3-5-sonnet-latest' : 'gpt-4o';
+  const model = customModel || defaultModel;
+
+  const prompt=`You are helping a student with ADHD study. From the material below, produce a JSON object ONLY (no markdown, no commentary) with this exact shape:
+{
+ "chunks": ["short digestible paragraph 1", "..."],        // 4-8 small chunks, each 1-3 sentences, plain language
+ "keyPoints": ["key point 1", "..."],                      // 5-7 crucial takeaways
+ "cards": [{"q":"question","a":"answer"}],                 // 6-8 flashcards testing understanding
+ "quiz": [{"q":"question ending in a blank or asking recall","a":"short answer"}]  // 5 quiz questions
+}
+Keep language simple, concrete, and ADHD-friendly. Material:\n\n${text.slice(0,12000)}`;
+
+  let res;
+  if (url.includes('anthropic') || url === defaultUrl) {
+    res=await fetch(url,{
+      method:'POST',
+      headers:{
+        'content-type':'application/json',
+        'x-api-key':key,
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-access':'true'
+      },
+      body:JSON.stringify({
+        model:model,
+        max_tokens:2000,
+        messages:[{role:'user',content:prompt}]
+      })
+    });
+    if(!res.ok){ throw new Error('API error '+res.status+': '+(await res.text()).slice(0,200)); }
+    const data=await res.json();
+    let txt=data.content[0].text.trim();
+    txt=txt.replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
+    const parsed=JSON.parse(txt);
+    parsed.chunks=parsed.chunks||[]; parsed.keyPoints=parsed.keyPoints||[];
+    parsed.cards=parsed.cards||[]; parsed.quiz=parsed.quiz||[];
+    return parsed;
+  } else {
+    const headers = {
+      'content-type':'application/json'
+    };
+    if (key) {
+      headers['authorization'] = 'Bearer ' + key;
+    }
+    
+    res=await fetch(url,{
+      method:'POST',
+      headers:headers,
+      body:JSON.stringify({
+        model:model,
+        max_tokens:2000,
+        messages:[{role:'user',content:prompt}]
+      })
+    });
+    if(!res.ok){ throw new Error('API error '+res.status+': '+(await res.text()).slice(0,200)); }
+    const data=await res.json();
+    let txt=data.choices[0].message.content.trim();
+    txt=txt.replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
+    const parsed=JSON.parse(txt);
+    parsed.chunks=parsed.chunks||[]; parsed.keyPoints=parsed.keyPoints||[];
+    parsed.cards=parsed.cards||[]; parsed.quiz=parsed.quiz||[];
+    return parsed;
+  }
+}
+
+/* ---------- Process button ---------- */
+document.getElementById('processBtn').onclick=async()=>{
+  const btn=document.getElementById('processBtn');
+  const text=await getInputText();
+  if(!text || text.length<40){alert('Please add at least a few sentences of material.');return;}
+  const key=localStorage.getItem('ffKey');
+  const url=localStorage.getItem('ffUrl');
+  const model=localStorage.getItem('ffModel');
+  let r;
+  if(key || url){
+    btn.innerHTML='<span class="spinner"></span> AI thinking...';
+    try{ r=await processAI(text,key,url,model); }
+    catch(e){ alert('AI failed ('+e.message+'). Using offline converter instead.'); r=processOffline(text); }
+  } else {
+    btn.textContent='Converting...'; r=processOffline(text);
+  }
+  btn.textContent='✨ Convert to Study Tools';
+  renderOutput(r);
+  saveReviewSet(text.slice(0,50));
+  document.getElementById('output').classList.remove('hidden');
+  document.getElementById('output').scrollIntoView({behavior:'smooth'});
+};
+
+/* ---------- Render ---------- */
+function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function renderOutput(r){
+  document.getElementById('planSteps').innerHTML=`
+    <div class="chunk"><h4>Step 1 · Skim</h4>Read the ${r.chunks.length} chunks below (2 min each). Don't memorize yet.</div>
+    <div class="chunk"><h4>Step 2 · Focus block</h4>Start a 25-min Pomodoro and study the key points.</div>
+    <div class="chunk"><h4>Step 3 · Recall</h4>Do the flashcards & quiz WITHOUT looking back.</div>
+    <div class="chunk"><h4>Step 4 · Repeat</h4>Review tomorrow, in 3 days, then in a week.</div>`;
+  document.getElementById('chunksOut').innerHTML=r.chunks.map((c,i)=>`<div class="chunk"><h4>Chunk ${i+1}</h4>${esc(c)}</div>`).join('')||'<p class="empty">No content.</p>';
+  document.getElementById('keyOut').innerHTML=r.keyPoints.map(k=>`<div class="keypoint">⭐ ${esc(k)}</div>`).join('')||'<p class="empty">No key points.</p>';
+  document.getElementById('cardCount').textContent=r.cards.length;
+  document.getElementById('cardsOut').innerHTML=r.cards.map(c=>`<div class="flashcard" onclick="this.classList.toggle('flipped')"><div class="flash-inner"><div class="flash-face flash-front">${esc(c.q)}</div><div class="flash-face flash-back">${esc(c.a)}</div></div></div>`).join('')||'<p class="empty">No cards.</p>';
+  window._quiz=r.quiz;
+  document.getElementById('quizOut').innerHTML=r.quiz.map((q,i)=>`<div style="margin-bottom:14px;"><div class="quiz-q">Q${i+1}: ${esc(q.q)}</div><input type="text" id="ans${i}" placeholder="Your answer..."><button class="btn ghost" style="padding:8px 14px;font-size:0.85rem;" onclick="checkAns(${i})">Check</button> <span id="res${i}" style="font-weight:600;"></span></div>`).join('')||'<p class="empty">No quiz.</p>';
+}
+function checkAns(i){
+  const ans=(window._quiz[i].a||'').toString();
+  const val=(document.getElementById('ans'+i).value||'').trim().toLowerCase();
+  const res=document.getElementById('res'+i);
+  if(val && ans.toLowerCase().includes(val) && val.length>1){res.textContent='✅ Correct!';res.style.color='#2fbf71';}
+  else{res.textContent='➡️ Answer: '+ans;res.style.color='#ff8a5c';}
+}
+document.getElementById('clearBtn').onclick=()=>{
+  document.getElementById('notesInput').value='';document.getElementById('linkInput').value='';
+  fileText='';document.getElementById('fileName').textContent='';document.getElementById('output').classList.add('hidden');
+};
+
+/* ---------- Pomodoro ---------- */
+let tMode='focus',tRemaining=25*60,tTotal=25*60,tInt=null,sessions=0;
+const disp=document.getElementById('timerDisplay'),modeLbl=document.getElementById('timerMode'),prog=document.getElementById('timerProgress');
+function fmt(s){return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
+function updateTimer(){disp.textContent=fmt(tRemaining);prog.style.width=(100-(tRemaining/tTotal*100))+'%';}
+function tick(){
+  if(tRemaining>0){tRemaining--;updateTimer();}
+  else{clearInterval(tInt);tInt=null;
+    if(tMode==='focus'){sessions++;document.getElementById('sessionCount').textContent=sessions;alert('🎉 Focus session done! Take a break.');tMode='break';tTotal=tRemaining=(+document.getElementById('breakLen').value||5)*60;modeLbl.textContent='Break Time ☕';}
+    else{alert('Break over — ready to focus?');tMode='focus';tTotal=tRemaining=(+document.getElementById('focusLen').value||25)*60;modeLbl.textContent='Focus Time';}
+    updateTimer();}
+}
+document.getElementById('startTimer').onclick=()=>{if(!tInt)tInt=setInterval(tick,1000);};
+document.getElementById('pauseTimer').onclick=()=>{clearInterval(tInt);tInt=null;};
+document.getElementById('resetTimer').onclick=()=>{clearInterval(tInt);tInt=null;tMode='focus';tTotal=tRemaining=(+document.getElementById('focusLen').value||25)*60;modeLbl.textContent='Focus Time';updateTimer();};
+document.getElementById('focusLen').onchange=()=>{if(tMode==='focus'&&!tInt){tTotal=tRemaining=(+document.getElementById('focusLen').value||25)*60;updateTimer();}};
+
+/* ---------- Spaced repetition ---------- */
+function saveReviewSet(name){
+  const sets=JSON.parse(localStorage.getItem('ffSets')||'[]');
+  sets.push({name:name||'Study set',created:Date.now(),intervals:[1,3,7,14],done:0});
+  localStorage.setItem('ffSets',JSON.stringify(sets));renderReview();
+}
+function renderReview(){
+  const sets=JSON.parse(localStorage.getItem('ffSets')||'[]');
+  const list=document.getElementById('reviewList');
+  if(!sets.length){list.innerHTML='<p class="empty">No sets yet. Convert material to create one.</p>';return;}
+  list.innerHTML=sets.map((s,i)=>{const nd=s.intervals[Math.min(s.done,s.intervals.length-1)];const due=new Date(s.created+nd*86400000).toLocaleDateString();return `<div class="review-item"><div><b>${esc(s.name)}${s.name.length>=50?'…':''}</b><br><span class="muted">Next: ${due} (in ${nd}d) · reviewed ${s.done}×</span></div><button class="btn ghost" style="padding:8px 12px;font-size:0.8rem;" onclick="markReviewed(${i})">✔ Reviewed</button></div>`;}).join('');
+}
+function markReviewed(i){const sets=JSON.parse(localStorage.getItem('ffSets')||'[]');sets[i].done++;sets[i].created=Date.now();localStorage.setItem('ffSets',JSON.stringify(sets));renderReview();}
+renderReview();updateTimer();
+
+/* ---------- PWA install ---------- */
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;document.getElementById('installBtn').classList.remove('hidden');});
+document.getElementById('installBtn').onclick=async()=>{if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;document.getElementById('installBtn').classList.add('hidden');}};
+if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));}
+</script>
+</body>
+</html>
