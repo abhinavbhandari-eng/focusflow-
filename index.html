@@ -380,13 +380,28 @@
     </div>
     <div id="in-notes"><textarea id="notesInput" rows="7" placeholder="Paste or type your study notes here..."></textarea></div>
     <div id="in-youtube" class="hidden">
-      <div style="display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap;">
-        <input type="url" id="ytInput" placeholder="https://www.youtube.com/watch?v=..." style="flex:1;">
-        <button class="btn" style="margin:0; white-space:nowrap;" onclick="fetchYouTubeTranscript()">📥 Fetch Transcript</button>
+      <!-- Step 1: URL + silent auto-fetch -->
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
+        <input type="url" id="ytInput" placeholder="https://www.youtube.com/watch?v=..." style="flex:1; min-width:200px;">
+        <button class="btn ghost" style="margin:0; white-space:nowrap; padding:10px 14px;" onclick="fetchYouTubeTranscript()">⚡ Auto-fetch</button>
       </div>
-      <div id="ytStatus" class="muted" style="margin-top:8px; padding:10px; border-radius:10px; background:var(--bg); display:none;"></div>
-      <p class="muted" style="margin-top:8px;">Fetches auto-generated captions from the YouTube video and turns them into study tools. Works best on educational videos with captions enabled.</p>
+      <div id="ytAutoStatus" style="display:none; font-size:0.82rem; color:var(--muted); margin-bottom:10px;"></div>
+
+      <!-- Step 2: Paste box (always visible, primary path) -->
+      <div style="background:var(--bg); border:2px dashed var(--border); border-radius:14px; padding:16px;">
+        <p style="margin:0 0 6px; font-weight:700; font-size:0.9rem;">📋 Paste transcript here:</p>
+        <p class="muted" style="margin:0 0 10px; font-size:0.82rem; line-height:1.5;">
+          On YouTube → click <b>⋮ More</b> → <b>Show transcript</b> → select all → copy → paste below.
+          Timestamps are stripped automatically.
+        </p>
+        <textarea id="ytPasteBox" rows="6" style="width:100%; padding:10px; border-radius:10px; border:1.5px solid var(--border); font-size:0.9rem; font-family:inherit; background:var(--card); color:var(--text); resize:vertical; box-sizing:border-box;" placeholder="0:00 welcome to this tutorial&#10;0:03 today we are going to learn..."></textarea>
+        <div style="display:flex; align-items:center; gap:10px; margin-top:10px; flex-wrap:wrap;">
+          <button class="btn" style="margin:0;" onclick="useManualTranscript()">✅ Use This Transcript</button>
+          <span id="ytReadyBadge" style="display:none; font-size:0.82rem; color:var(--green); font-weight:600;"></span>
+        </div>
+      </div>
     </div>
+
     <div id="in-link" class="hidden">
       <input type="url" id="linkInput" placeholder="https://example.com/article">
       <p class="muted" style="margin-top:6px;">Paste an article link. If a site blocks fetching, copy its text into Notes instead.</p>
@@ -633,12 +648,18 @@ async function getInputText(){
   if(active==='notes') return document.getElementById('notesInput').value.trim();
   if(active==='file') return fileText.trim();
   if(active==='youtube') {
+    // Primary: use whatever is stored (set by useManualTranscript or auto-fetch)
     const stored = window._ytTranscript || '';
-    if(!stored) {
-      alert('Click "📥 Fetch Transcript" first, then Convert.');
-      return '';
+    if(stored) return stored;
+    // Fallback: read paste box directly if user typed/pasted but didn't click "Use"
+    const box = document.getElementById('ytPasteBox');
+    const boxText = box ? box.value.trim() : '';
+    if(boxText.length > 50) {
+      // Clean timestamps on the fly
+      return boxText.replace(/^\d{1,2}:\d{2}(:\d{2})?\s*/gm,'').replace(/\n+/g,' ').trim();
     }
-    return stored;
+    alert('Paste your YouTube transcript in the box and click "✅ Use This Transcript" first.');
+    return '';
   }
   if(active==='link'){
     const url=document.getElementById('linkInput').value.trim();
@@ -662,10 +683,11 @@ function extractYTVideoId(url) {
   return null;
 }
 
-// Parse clean XML transcript from youtubetranscript.com response
-function parseXMLTranscript(text) {
-  const matches = text.match(/<text[^>]*>([^<]+)<\/text>/g);
-  if (!matches || matches.length < 15) return null;
+// Strict: only returns text if response is genuine XML caption data (not a page scrape)
+function parseXMLTranscript(xmlText) {
+  // Must have actual <text> caption nodes — page scrapes won't have these
+  const matches = xmlText.match(/<text[^>]*>([^<]+)<\/text>/g);
+  if (!matches || matches.length < 20) return null; // require at least 20 captions
   return matches
     .map(m => m.replace(/<[^>]+>/g, '')
       .replace(/&amp;/g,'&').replace(/&#39;/g,"'")
@@ -675,125 +697,83 @@ function parseXMLTranscript(text) {
     .join(' ');
 }
 
-// Extract only the Transcript section from a Jina.ai-scraped YouTube page
-function extractTranscriptSection(raw) {
-  // Find the transcript block: appears after "Transcript\n" and before Comments/related
-  const markers = [
-    /Transcript\s*\n+([\s\S]{200,}?)(?:\n{3,}|Comments|\d+K? views)/i,
-    /Show transcript\s*\n+([\s\S]{200,}?)(?:\n{3,}|Comments|Show less)/i,
-  ];
-  for (const m of markers) {
-    const match = raw.match(m);
-    if (match) {
-      // Clean the extracted section
-      return match[1]
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')  // strip MD links
-        .replace(/https?:\/\/\S+/g, '')             // strip URLs
-        .replace(/^\d{1,2}:\d{2}(:\d{2})?\s*/gm, '') // strip timestamps
-        .replace(/\n+/g, ' ')
-        .trim();
-    }
-  }
-  return null;
-}
-
 async function fetchYouTubeTranscript() {
   const url = document.getElementById('ytInput').value.trim();
-  const statusEl = document.getElementById('ytStatus');
-  const showStatus = (msg, color) => {
-    statusEl.style.display = 'block';
-    statusEl.innerHTML = msg;
-    statusEl.style.color = color || 'var(--muted)';
-    statusEl.style.borderLeft = `4px solid ${color || 'var(--border)'}`;
-    statusEl.style.padding = '14px 16px';
-    statusEl.style.background = 'var(--bg)';
-    statusEl.style.borderRadius = '12px';
-    statusEl.style.lineHeight = '1.7';
-  };
+  const autoStatusEl = document.getElementById('ytAutoStatus');
 
   if (!url) { alert('Please paste a YouTube URL first.'); return; }
   const videoId = extractYTVideoId(url);
   if (!videoId) { alert('Could not find a YouTube video ID in that URL.'); return; }
 
-  showStatus('⏳ Fetching transcript…', 'var(--primary)');
+  autoStatusEl.style.display = 'block';
+  autoStatusEl.textContent = '⚡ Trying to auto-fetch transcript…';
   window._ytTranscript = '';
 
-  // ── Strategy 1: youtubetranscript.com (clean XML captions) ──────────────────
+  // ── Try youtubetranscript.com (strict XML only) ─────────────────────────────
   try {
     const res = await fetch(`https://youtubetranscript.com/?server_vid2=${videoId}`);
     if (res.ok) {
-      const text = await res.text();
-      const transcript = parseXMLTranscript(text);
-      if (transcript && transcript.length > 300) {
+      const transcript = parseXMLTranscript(await res.text());
+      if (transcript) {
+        // Auto-fill the paste box so user can verify before converting
+        const box = document.getElementById('ytPasteBox');
+        if (box) box.value = transcript;
         window._ytTranscript = transcript;
-        showStatus(`✅ <b>Transcript fetched!</b> ${transcript.length.toLocaleString()} characters of spoken content.<br>Click <b>✨ Convert to Study Tools</b> to continue.`, 'var(--green)');
+        const badge = document.getElementById('ytReadyBadge');
+        if (badge) { badge.textContent = `✅ Auto-fetched! ${transcript.length.toLocaleString()} chars`; badge.style.display='inline'; }
+        autoStatusEl.textContent = '✅ Transcript auto-fetched and filled below. Click "✨ Convert to Study Tools" or edit the text first.';
+        autoStatusEl.style.color = 'var(--green)';
         return;
       }
     }
   } catch(e) {}
 
-  // ── Strategy 2: Tactiq transcript API ──────────────────────────────────────
-  showStatus('⏳ Trying alternate source…', 'var(--primary)');
+  // ── Try Tactiq (JSON captions array) ───────────────────────────────────────
   try {
     const res = await fetch(`https://tactiq-apps.appspot.com/transcript?url=https://www.youtube.com/watch?v=${videoId}`);
     if (res.ok) {
       const data = await res.json();
-      if (data && data.captions && data.captions.length > 10) {
-        const transcript = data.captions.map(c => c.text || '').filter(Boolean).join(' ');
+      if (data?.captions?.length > 20) {
+        const transcript = data.captions.map(c => c.text||'').filter(Boolean).join(' ');
         if (transcript.length > 300) {
+          const box = document.getElementById('ytPasteBox');
+          if (box) box.value = transcript;
           window._ytTranscript = transcript;
-          showStatus(`✅ <b>Transcript fetched!</b> ${transcript.length.toLocaleString()} characters.<br>Click <b>✨ Convert to Study Tools</b> to continue.`, 'var(--green)');
+          const badge = document.getElementById('ytReadyBadge');
+          if (badge) { badge.textContent = `✅ Auto-fetched! ${transcript.length.toLocaleString()} chars`; badge.style.display='inline'; }
+          autoStatusEl.textContent = '✅ Transcript auto-fetched and filled below. Click "✨ Convert to Study Tools".';
+          autoStatusEl.style.color = 'var(--green)';
           return;
         }
       }
     }
   } catch(e) {}
 
-  // ── Strategy 3: Jina.ai — extract ONLY the Transcript section ──────────────
-  showStatus('⏳ Trying page reader…', 'var(--primary)');
-  try {
-    const res = await fetch('https://r.jina.ai/https://www.youtube.com/watch?v=' + videoId, {
-      headers: { 'Accept': 'text/plain' }
-    });
-    if (res.ok) {
-      const raw = await res.text();
-      // Only extract the transcript section — NOT the whole page
-      const section = extractTranscriptSection(raw);
-      if (section && section.length > 300) {
-        window._ytTranscript = section;
-        showStatus(`✅ <b>Transcript extracted!</b> ${section.length.toLocaleString()} characters.<br>Click <b>✨ Convert to Study Tools</b> to continue.`, 'var(--green)');
-        return;
-      }
-    }
-  } catch(e) {}
-
-  // ── All automatic methods failed — show paste-box fallback ─────────────────
-  showStatus(`
-    <b>⚠️ Auto-fetch failed</b> — captions may be disabled or the video is private.<br><br>
-    <b>Paste the transcript here directly (30 sec):</b><br>
-    <small>On YouTube: click <b>⋮ More</b> → <b>Show transcript</b> → select all text → copy</small><br>
-    <textarea id="ytPasteBox" rows="6" style="width:100%; margin-top:8px; padding:10px; border-radius:10px; border:2px solid var(--border); font-size:0.9rem; font-family:inherit; background:var(--card); color:var(--text); resize:vertical;" placeholder="Paste the YouTube transcript text here…"></textarea>
-    <button class="btn" style="margin-top:8px; padding:8px 18px; font-size:0.88rem;" onclick="useManualTranscript()">✅ Use This Transcript</button>
-  `, 'var(--accent)');
+  // ── Auto-fetch failed — guide user to paste manually ───────────────────────
+  autoStatusEl.innerHTML = '⚠️ Auto-fetch didn\'t work for this video. Please paste the transcript manually in the box below.';
+  autoStatusEl.style.color = 'var(--accent)';
+  document.getElementById('ytPasteBox')?.focus();
 }
 
 function useManualTranscript() {
   const box = document.getElementById('ytPasteBox');
   if (!box) return;
-  const text = box.value.trim();
-  if (text.length < 50) { alert('Please paste more transcript content first.'); return; }
-  // Clean timestamps from manually pasted transcripts
-  const cleaned = text
+  const raw = box.value.trim();
+  if (raw.length < 50) { alert('Please paste more transcript content first.'); return; }
+  // Strip timestamps (e.g. "0:00", "1:23:45") and clean up whitespace
+  const cleaned = raw
     .replace(/^\d{1,2}:\d{2}(:\d{2})?\s*/gm, '')
     .replace(/\n+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
     .trim();
   window._ytTranscript = cleaned;
-  const statusEl = document.getElementById('ytStatus');
-  if (statusEl) {
-    statusEl.innerHTML = `✅ <b>Transcript ready!</b> ${cleaned.length.toLocaleString()} characters. Click <b>✨ Convert to Study Tools</b> to continue.`;
-    statusEl.style.color = 'var(--green)';
-    statusEl.style.borderLeft = '4px solid var(--green)';
+  const badge = document.getElementById('ytReadyBadge');
+  if (badge) {
+    badge.textContent = `✅ Ready! ${cleaned.length.toLocaleString()} chars — click "✨ Convert to Study Tools"`;
+    badge.style.display = 'inline';
   }
+  const autoStatusEl = document.getElementById('ytAutoStatus');
+  if (autoStatusEl) { autoStatusEl.style.display = 'none'; }
 }
 
 /* ---------- Offline converter (fallback) ---------- */
