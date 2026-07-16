@@ -374,84 +374,94 @@ function keywords(s){
   });
 }
 function processOffline(text){
-  const sentences=splitSentences(text).map(s=>s.trim()).filter(s=>s.length>15);
-  const freq={}; sentences.forEach(s=>keywords(s).forEach(w=>{w=w.toLowerCase();freq[w]=(freq[w]||0)+1;}));
-  const scored=sentences.map(s=>{let sc=0;keywords(s).forEach(w=>sc+=freq[w.toLowerCase()]||0);return {s,sc:sc/(s.split(' ').length||1)};});
-  const chunks=[]; for(let i=0;i<sentences.length;i+=3) chunks.push(sentences.slice(i,i+3).join(' '));
-  
-  // Prioritize sentences ending with punctuation for key points, and skip near-duplicates
-  const keyPoints = [];
-  const sortedSentences = [...scored]
-    .sort((a, b) => {
-      const aPunct = /[.!?]$/.test(a.s) ? 1 : 0;
-      const bPunct = /[.!?]$/.test(b.s) ? 1 : 0;
-      if (aPunct !== bPunct) return bPunct - aPunct;
-      return b.sc - a.sc;
-    });
+  const sentences = splitSentences(text).map(s=>s.trim()).filter(s=>s.length>15);
+  if(!sentences.length) return {chunks:[],keyPoints:[],cards:[],quiz:[]};
 
-  sortedSentences.forEach(x => {
-    if (keyPoints.length >= 6) return;
-    const dup = keyPoints.some(k => similar(k, x.s));
-    if (!dup) keyPoints.push(x.s);
+  // ----- term frequency across document -----
+  const freq={};
+  sentences.forEach(s=>keywords(s).forEach(w=>{w=w.toLowerCase();freq[w]=(freq[w]||0)+1;}));
+
+  // ----- score & rank sentences -----
+  const scored = sentences.map((s,idx)=>{
+    let sc=0; keywords(s).forEach(w=>sc+=freq[w.toLowerCase()]||0);
+    sc = sc/(s.split(' ').length||1);
+    // boost sentences that look like definitions/facts
+    if(/\b(is|are|means|refers to|defined as|called|consists of)\b/i.test(s)) sc*=1.5;
+    // penalize very long or very short
+    const wc=s.split(' ').length;
+    if(wc<6||wc>40) sc*=0.6;
+    return {s,sc,idx};
   });
 
-  // FLASHCARDS — each card uses a DIFFERENT keyword, no repeats, with varied templates
-  const usedTerms=new Set();
-  const templates=[
-    t=>`What does "${t}" refer to in this material?`,
-    t=>`Explain the role of "${t}".`,
-    t=>`Why is "${t}" important here?`,
-    t=>`Define "${t}" in your own words.`,
-    t=>`What do you know about "${t}"?`
-  ];
+  // ----- chunks (keep original order) -----
+  const chunks=[];
+  for(let i=0;i<sentences.length;i+=3) chunks.push(sentences.slice(i,i+3).join(' '));
+
+  // ----- key points (top, de-duplicated, restored to reading order) -----
+  const topSet=[];
+  [...scored].sort((a,b)=>b.sc-a.sc).forEach(x=>{
+    if(topSet.length>=7) return;
+    if(!topSet.some(k=>similar(k.s,x.s))) topSet.push(x);
+  });
+  topSet.sort((a,b)=>a.idx-b.idx);
+  const keyPoints=topSet.map(x=>x.s);
+
+  // ----- FLASHCARDS -----
   const cards=[];
+  const usedTerms=new Set();
+
   keyPoints.forEach(s=>{
-    const kw=keywords(s)
-      .map(w=>w.toLowerCase())
-      .sort((a,b)=>(freq[b]||0)-(freq[a]||0));
+    if(cards.length>=8) return;
+
+    // Try to make a definition card: "X is/are ..." -> Q: What is X?  A: full sentence
+    const defMatch = s.match(/^(.{3,50}?)\s+(is|are|means|refers to|was|were)\s+(.+)/i);
+    if(defMatch){
+      const term=defMatch[1].replace(/^(the|a|an)\s+/i,'').trim();
+      const key=term.toLowerCase();
+      if(term.split(' ').length<=5 && !usedTerms.has(key)){
+        usedTerms.add(key);
+        cards.push({q:`What ${defMatch[2].toLowerCase()} ${term}?`, a:s});
+        return;
+      }
+    }
+
+    // Otherwise: pick the strongest unused keyword and ask about it
+    const kw=keywords(s).map(w=>w.toLowerCase()).sort((a,b)=>(freq[b]||0)-(freq[a]||0));
     const term=kw.find(w=>!usedTerms.has(w));
     if(term){
       usedTerms.add(term);
-      const tmpl=templates[cards.length % templates.length];
-      const capitalizedTerm = term.charAt(0).toUpperCase() + term.slice(1);
-      cards.push({ q: tmpl(capitalizedTerm), a: s });
+      const cap=term.charAt(0).toUpperCase()+term.slice(1);
+      const templates=[
+        t=>`How would you explain "${t}"?`,
+        t=>`What is the role of "${t}"?`,
+        t=>`Why does "${t}" matter here?`,
+        t=>`Give the key fact about "${t}".`
+      ];
+      cards.push({q:templates[cards.length%templates.length](cap), a:s});
     }
   });
 
-  // QUIZ — fill in the blank, each with a distinct answer word
-  const quiz=[]; 
-  const usedAnswers = new Set();
-  // Avoid using question sentences in the quiz
-  const quizSentences = keyPoints.filter(s => !s.endsWith('?'));
-  const sources = quizSentences.length >= 3 ? quizSentences : keyPoints;
-
-  sources.forEach(s=>{
-    if (quiz.length >= 5) return;
+  // ----- QUIZ (fill in the blank, distinct answers, prefer meaningful words) -----
+  const quiz=[];
+  const usedAns=new Set();
+  keyPoints.filter(s=>!s.endsWith('?')).forEach(s=>{
+    if(quiz.length>=5) return;
     const kw=keywords(s);
-    if(kw.length){
-      const scoredKw = kw.map(w => {
-        let score = w.length;
-        const idx = s.indexOf(w);
-        if (idx > 0 && /^[A-Z]/.test(w)) {
-          score += 10;
-        }
-        if (w.endsWith('ing') || w.endsWith('ed') || w.endsWith('ly')) {
-          score -= 5;
-        }
-        if (usedAnswers.has(w.toLowerCase())) {
-          score -= 20;
-        }
-        return { w, score };
-      });
-      scoredKw.sort((a, b) => b.score - a.score);
-      const best = scoredKw[0].w;
-      usedAnswers.add(best.toLowerCase());
-      const qText = s.replace(new RegExp('\\b'+best+'\\b','gi'),'_______');
-      quiz.push({q:qText,a:best});
-    }
+    if(!kw.length) return;
+    const scoredKw=kw.map(w=>{
+      let sc=w.length + (freq[w.toLowerCase()]||0);
+      if(/^[A-Z]/.test(w)) sc+=5;                 // proper nouns matter
+      if(/(ing|ed|ly)$/.test(w)) sc-=4;           // avoid verbs/adverbs
+      if(usedAns.has(w.toLowerCase())) sc-=50;    // no repeats
+      return {w,sc};
+    }).sort((a,b)=>b.sc-a.sc);
+    const best=scoredKw[0].w;
+    if(usedAns.has(best.toLowerCase())) return;
+    usedAns.add(best.toLowerCase());
+    quiz.push({q:s.replace(new RegExp('\\b'+best+'\\b','gi'),'_______'), a:best});
   });
 
-  return {chunks:chunks.slice(0,8),keyPoints,cards,quiz};
+  return {chunks:chunks.slice(0,8), keyPoints, cards, quiz};
 }
 
 // simple duplicate-sentence check (shared words ratio)
