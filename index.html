@@ -790,10 +790,10 @@ function renderReview(){
   const sets=JSON.parse(localStorage.getItem('ffSets')||'[]');
   const list=document.getElementById('reviewList');
   if(!sets.length){list.innerHTML='<p class="empty">No sets yet. Convert material to create one.</p>';return;}
-  list.innerHTML=sets.map((s,i)=>{
+  let html = sets.map((s,i)=>{
     const nd=s.intervals[Math.min(s.done,s.intervals.length-1)];
     const due=new Date(s.created+nd*86400000).toLocaleDateString();
-    return `<div class="review-item" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+    return `<div class="review-item" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid var(--border);">
       <div>
         <b>${esc(s.name)}${s.name.length>=50?'…':''}</b><br>
         <span class="muted">Next: ${due} (in ${nd}d) · reviewed ${s.done}×</span>
@@ -801,9 +801,16 @@ function renderReview(){
       <div style="display:flex; gap:6px;">
         <button class="btn ghost" style="padding:8px 12px;font-size:0.8rem;background:var(--primary-light);color:var(--primary);" onclick="loadReviewSet(${i})">📖 Study</button>
         <button class="btn ghost" style="padding:8px 12px;font-size:0.8rem;" onclick="markReviewed(${i})">✔ Reviewed</button>
+        <button class="btn ghost" style="padding:8px 10px;font-size:0.8rem;background:rgba(255,138,92,0.1);color:#ff8a5c;border:1px solid rgba(255,138,92,0.2);" onclick="deleteReviewSet(${i})" title="Delete set">🗑️</button>
       </div>
     </div>`;
   }).join('');
+
+  html += `<div style="text-align:right; margin-top:16px;">
+    <button class="btn secondary" style="padding:6px 12px; font-size:0.8rem; background:#ff8a5c; color:#fff;" onclick="clearHistory()">🗑️ Clear All History</button>
+  </div>`;
+  
+  list.innerHTML = html;
 }
 
 function markReviewed(i){
@@ -812,6 +819,22 @@ function markReviewed(i){
   sets[i].created=Date.now();
   localStorage.setItem('ffSets',JSON.stringify(sets));
   renderReview();
+}
+
+function deleteReviewSet(i){
+  if(confirm("Are you sure you want to delete this study set?")){
+    const sets=JSON.parse(localStorage.getItem('ffSets')||'[]');
+    sets.splice(i,1);
+    localStorage.setItem('ffSets',JSON.stringify(sets));
+    renderReview();
+  }
+}
+
+function clearHistory(){
+  if(confirm("Are you sure you want to clear your entire spaced repetition history? This cannot be undone.")){
+    localStorage.removeItem('ffSets');
+    renderReview();
+  }
 }
 renderReview();updateTimer();
 
