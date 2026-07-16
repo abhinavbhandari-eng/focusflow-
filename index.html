@@ -168,8 +168,11 @@
     </div>
     <div class="card"><h2>⭐ Key Points to Remember</h2><div id="keyOut" style="margin-top:8px;"></div></div>
     <div class="card">
-      <h2>🃏 Flashcards <span class="badge" id="cardCount">0</span></h2>
-      <p class="muted">Tap a card to flip. Active recall builds strong memory.</p>
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <h2 style="margin:0;">🃏 Flashcards <span class="badge" id="cardCount">0</span></h2>
+        <button class="btn ghost" style="padding:6px 12px; font-size:0.8rem; background:var(--primary-light); color:var(--primary); border:1px solid var(--primary);" onclick="refreshFlashcards()">🔄 Refresh Cards</button>
+      </div>
+      <p class="muted" style="margin-top:4px;">Tap a card to flip. Active recall builds strong memory.</p>
       <div id="cardsOut"></div>
     </div>
     <div class="card">
@@ -402,7 +405,7 @@ function keywords(s){
     return (w.length > 4 || isAcronym) && !STOP.has(w.toLowerCase());
   });
 }
-function processOffline(text){
+function processOffline(text, randomized = false){
   const lines = cleanText(text).split(/\r?\n/);
   
   // Protect punctuation inside parenthesis
@@ -505,22 +508,31 @@ function processOffline(text){
   });
 
   // ----- key points (top, de-duplicated, restored to reading order) -----
-  const topSet=[];
+  const pool=[];
   const sortedScored = [...scored].sort((a,b)=>b.sc-a.sc);
   
   sortedScored.forEach(x=>{
-    if(topSet.length>=7) return;
-    if(!x.s.endsWith('?') && !topSet.some(k=>similar(k.s,x.s))) topSet.push(x);
+    if(pool.length>=15) return;
+    if(!x.s.endsWith('?') && !pool.some(k=>similar(k.s,x.s))) pool.push(x);
   });
   
-  if (topSet.length < 4) {
+  if (pool.length < 5) {
     sortedScored.forEach(x=>{
-      if(topSet.length>=7) return;
-      if(x.s.endsWith('?') && !topSet.some(k=>similar(k.s,x.s))) topSet.push(x);
+      if(pool.length>=15) return;
+      if(x.s.endsWith('?') && !pool.some(k=>similar(k.s,x.s))) pool.push(x);
     });
   }
-  topSet.sort((a,b)=>a.idx-b.idx);
-  const keyPoints=topSet.map(x=>x.s);
+
+  let selected = [];
+  if (randomized) {
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    selected = shuffled.slice(0, 7);
+  } else {
+    selected = pool.slice(0, 7);
+  }
+
+  selected.sort((a,b)=>a.idx-b.idx);
+  const keyPoints=selected.map(x=>x.s);
 
   // ----- FLASHCARDS -----
   const cards=[];
@@ -575,6 +587,9 @@ function processOffline(text){
           t=>`Why does "${t}" matter here?`,
           t=>`Give the key fact about "${t}".`
         ];
+        if (randomized) {
+          templates.sort(() => Math.random() - 0.5);
+        }
         cards.push({q:templates[cards.length%templates.length](cap), a:s});
       }
     }
@@ -686,6 +701,7 @@ document.getElementById('processBtn').onclick=async()=>{
   const btn=document.getElementById('processBtn');
   const text=await getInputText();
   if(!text || text.length<40){alert('Please add at least a few sentences of material.');return;}
+  window.activeText = text;
   const key=localStorage.getItem('ffKey');
   const url=localStorage.getItem('ffUrl');
   const model=localStorage.getItem('ffModel');
@@ -771,6 +787,7 @@ function loadReviewSet(i){
   const sets=JSON.parse(localStorage.getItem('ffSets')||'[]');
   const s=sets[i];
   if(!s) return;
+  window.activeText = s.text || '';
   if(s.data){
     renderOutput(s.data);
   } else if(s.text){
@@ -835,6 +852,16 @@ function clearHistory(){
     localStorage.removeItem('ffSets');
     renderReview();
   }
+}
+
+function refreshFlashcards(){
+  if(!window.activeText){
+    alert("Please convert some material first to refresh flashcards!");
+    return;
+  }
+  const r = processOffline(window.activeText, true);
+  document.getElementById('cardCount').textContent=r.cards.length;
+  document.getElementById('cardsOut').innerHTML=r.cards.map(c=>`<div class="flashcard" onclick="this.classList.toggle('flipped')"><div class="flash-inner"><div class="flash-face flash-front">${esc(c.q)}</div><div class="flash-face flash-back">${esc(c.a)}</div></div></div>`).join('')||'<p class="empty">No cards.</p>';
 }
 renderReview();updateTimer();
 
