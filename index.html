@@ -374,10 +374,19 @@
     <h2>📥 Add Your Material</h2>
     <div class="tabs">
       <button class="tab active" data-in="notes">📝 Notes</button>
+      <button class="tab" data-in="youtube">🎥 YouTube</button>
       <button class="tab" data-in="link">🔗 Link</button>
       <button class="tab" data-in="file">📄 File</button>
     </div>
     <div id="in-notes"><textarea id="notesInput" rows="7" placeholder="Paste or type your study notes here..."></textarea></div>
+    <div id="in-youtube" class="hidden">
+      <div style="display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap;">
+        <input type="url" id="ytInput" placeholder="https://www.youtube.com/watch?v=..." style="flex:1;">
+        <button class="btn" style="margin:0; white-space:nowrap;" onclick="fetchYouTubeTranscript()">📥 Fetch Transcript</button>
+      </div>
+      <div id="ytStatus" class="muted" style="margin-top:8px; padding:10px; border-radius:10px; background:var(--bg); display:none;"></div>
+      <p class="muted" style="margin-top:8px;">Fetches auto-generated captions from the YouTube video and turns them into study tools. Works best on educational videos with captions enabled.</p>
+    </div>
     <div id="in-link" class="hidden">
       <input type="url" id="linkInput" placeholder="https://example.com/article">
       <p class="muted" style="margin-top:6px;">Paste an article link. If a site blocks fetching, copy its text into Notes instead.</p>
@@ -510,7 +519,7 @@ document.querySelectorAll('.tab').forEach(t=>{
   t.onclick=()=>{
     document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
     t.classList.add('active');
-    ['notes','link','file'].forEach(id=>document.getElementById('in-'+id).classList.add('hidden'));
+    ['notes','youtube','link','file'].forEach(id=>document.getElementById('in-'+id).classList.add('hidden'));
     document.getElementById('in-'+t.dataset.in).classList.remove('hidden');
   };
 });
@@ -623,6 +632,14 @@ async function getInputText(){
   const active=document.querySelector('.tab.active').dataset.in;
   if(active==='notes') return document.getElementById('notesInput').value.trim();
   if(active==='file') return fileText.trim();
+  if(active==='youtube') {
+    const stored = window._ytTranscript || '';
+    if(!stored) {
+      alert('Click "📥 Fetch Transcript" first, then Convert.');
+      return '';
+    }
+    return stored;
+  }
   if(active==='link'){
     const url=document.getElementById('linkInput').value.trim();
     if(!url) return '';
@@ -630,6 +647,89 @@ async function getInputText(){
     alert("Couldn't fetch that link. Copy the article text into Notes instead."); return '';
   }
   return '';
+}
+
+/* ---------- YouTube Transcript Fetcher ---------- */
+function extractYTVideoId(url) {
+  const patterns = [
+    /(?:v=|youtu\.be\/)([\w-]{11})/,
+    /(?:embed|shorts)\/([\w-]{11})/
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+async function fetchYouTubeTranscript() {
+  const url = document.getElementById('ytInput').value.trim();
+  const statusEl = document.getElementById('ytStatus');
+  const showStatus = (msg, color) => {
+    statusEl.style.display = 'block';
+    statusEl.innerHTML = msg;
+    statusEl.style.color = color || 'var(--muted)';
+    statusEl.style.borderLeft = `3px solid ${color || 'var(--border)'}`;
+  };
+
+  if (!url) { alert('Please paste a YouTube URL first.'); return; }
+  const videoId = extractYTVideoId(url);
+  if (!videoId) { alert('Could not find a valid YouTube video ID in that URL. Make sure it looks like https://www.youtube.com/watch?v=XXXXXXXXXXX'); return; }
+
+  showStatus('⏳ Fetching transcript from YouTube...', 'var(--primary)');
+  window._ytTranscript = '';
+
+  // Strategy 1: Jina.ai reader (works for many YT pages and extracts transcripts)
+  try {
+    const res = await fetch('https://r.jina.ai/https://www.youtube.com/watch?v=' + videoId, {
+      headers: { 'Accept': 'text/plain' }
+    });
+    if (res.ok) {
+      const text = await res.text();
+      // Jina returns markdown — look for transcript content
+      const cleaned = text.replace(/\[.*?\]\(.*?\)/g, '').replace(/#{1,6}\s/g, '').trim();
+      if (cleaned.length > 300) {
+        window._ytTranscript = cleaned;
+        showStatus(`✅ Transcript fetched! (${cleaned.length.toLocaleString()} characters). Click "✨ Convert to Study Tools" to continue.`, 'var(--green)');
+        return;
+      }
+    }
+  } catch(e) {}
+
+  // Strategy 2: youtubetranscript.com API (free, no-key public endpoint)
+  try {
+    const res = await fetch(`https://youtubetranscript.com/?server_vid2=${videoId}`);
+    if (res.ok) {
+      const text = await res.text();
+      // Extract text from the XML/HTML response
+      const matches = text.match(/<text[^>]*>([^<]+)<\/text>/g);
+      if (matches && matches.length > 10) {
+        const transcript = matches.map(m => m.replace(/<[^>]+>/g, '').replace(/&amp;/g,'&').replace(/&#39;/g,"'").replace(/&quot;/g,'"')).join(' ');
+        window._ytTranscript = transcript;
+        showStatus(`✅ Transcript fetched! (${transcript.length.toLocaleString()} characters). Click "✨ Convert to Study Tools" to continue.`, 'var(--green)');
+        return;
+      }
+    }
+  } catch(e) {}
+
+  // Strategy 3: Try alternate transcript proxy
+  try {
+    const res = await fetch(`https://r.jina.ai/https://youtubetranscript.com/?server_vid2=${videoId}`, {
+      headers: { 'Accept': 'text/plain' }
+    });
+    if (res.ok) {
+      const text = await res.text();
+      if (text.length > 200) {
+        window._ytTranscript = text;
+        showStatus(`✅ Transcript fetched! (${text.length.toLocaleString()} chars). Click "✨ Convert" to continue.`, 'var(--green)');
+        return;
+      }
+    }
+  } catch(e) {}
+
+  // All failed
+  showStatus(`❌ Could not auto-fetch captions for this video. This happens when captions are disabled or the video is private.<br><br>
+    <b>Manual workaround:</b> Open the video on YouTube → click the ⋮ menu → <em>Open transcript</em> → copy the text → paste it in the 📝 Notes tab.`, 'var(--accent)');
 }
 
 /* ---------- Offline converter (fallback) ---------- */
