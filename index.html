@@ -351,7 +351,20 @@ function cleanText(t){
   return t.replace(/[^\S\r\n]+/g, ' ').replace(/\[[0-9]+\]/g, '').trim(); 
 }
 function splitSentences(t){
-  const cleaned = cleanText(t);
+  let cleaned = cleanText(t);
+  
+  // Protect punctuation inside parenthesis
+  cleaned = cleaned.replace(/\(([^)]+)\)/g, (match, p1) => {
+    return '(' + p1.replace(/\./g, '____').replace(/!/g, '___EXCL____').replace(/\?/g, '___QUEST____') + ')';
+  });
+
+  // Protect common abbreviations containing periods
+  const abbrevs = ["etc", "e.g", "i.e", "vs", "approx", "dr", "mr", "mrs", "ms", "st", "co", "corp", "inc", "ltd", "a.m", "p.m"];
+  abbrevs.forEach(ab => {
+    const regex = new RegExp('\\b' + ab.replace('.', '\\.') + '\\.', 'gi');
+    cleaned = cleaned.replace(regex, ab + '____');
+  });
+
   const lines = cleaned.split(/\r?\n/);
   const result = [];
   lines.forEach(line => {
@@ -359,13 +372,29 @@ function splitSentences(t){
     if (!trimmed) return;
     const sentences = trimmed.match(/[^.!?]+[.!?]+/g);
     if (sentences) {
-      result.push(...sentences.map(s => s.trim()));
+      sentences.forEach(s => {
+        let restored = s.trim();
+        abbrevs.forEach(ab => {
+          const regex = new RegExp('\\b' + ab + '____', 'gi');
+          restored = restored.replace(regex, ab + '.');
+        });
+        restored = restored.replace(/____/g, '.').replace(/___EXCL____/g, '!').replace(/___QUEST____/g, '?');
+        result.push(restored);
+      });
     } else {
-      result.push(trimmed);
+      let restored = trimmed;
+      abbrevs.forEach(ab => {
+        const regex = new RegExp('\\b' + ab + '____', 'gi');
+        restored = restored.replace(regex, ab + '.');
+      });
+      restored = restored.replace(/____/g, '.').replace(/___EXCL____/g, '!').replace(/___QUEST____/g, '?');
+      result.push(restored);
     }
   });
   return result;
 }
+
+const BAD_TERMS = new Set(["what", "this", "which", "who", "how", "they", "it", "these", "those", "there", "here", "you", "we", "i", "every", "all", "each", "that", "he", "she", "single", "before", "after", "some", "many", "other", "another", "one", "two", "three", "first", "second", "third", "an", "the", "a", "when", "why", "whose", "whom"]);
 const STOP=new Set("the a an and or but of to in on at for with is are was were be been being this that these those it its as by from he she they we you i your our their his her not can will would should could have has had do does did about which who what where when why how whose whom using other another some many more most very also than then only into over under above below during before after between through first second third version history project values value index result output list show files file read write text code app apps system user screen main page layout view data list items item dynamic static standard default system simple basic common general specific detail details info information application applications device devices".split(' '));
 function keywords(s){
   return s.split(/\W+/).filter(w => {
@@ -414,20 +443,23 @@ function processOffline(text){
     if(cards.length>=8) return;
 
     // Try to make a definition card: "X is/are ..." -> Q: What is X?  A: full sentence
-    const defMatch = s.match(/^(.{3,50}?)\s+(is|are|means|refers to|was|were)\s+(.+)/i);
-    if(defMatch){
-      const term=defMatch[1].replace(/^(the|a|an)\s+/i,'').trim();
-      const key=term.toLowerCase();
-      if(term.split(' ').length<=5 && !usedTerms.has(key)){
-        usedTerms.add(key);
-        cards.push({q:`What ${defMatch[2].toLowerCase()} ${term}?`, a:s});
-        return;
+    // Ensure we do not make definition cards from questions
+    if (!s.endsWith('?')) {
+      const defMatch = s.match(/^(.{3,50}?)\s+(is|are|means|refers to|was|were)\s+(.+)/i);
+      if(defMatch){
+        const term=defMatch[1].replace(/^(the|a|an)\s+/i,'').trim();
+        const key=term.toLowerCase();
+        if(term.split(' ').length<=5 && !usedTerms.has(key) && !BAD_TERMS.has(key)){
+          usedTerms.add(key);
+          cards.push({q:`What ${defMatch[2].toLowerCase()} ${term}?`, a:s});
+          return;
+        }
       }
     }
 
     // Otherwise: pick the strongest unused keyword and ask about it
     const kw=keywords(s).map(w=>w.toLowerCase()).sort((a,b)=>(freq[b]||0)-(freq[a]||0));
-    const term=kw.find(w=>!usedTerms.has(w));
+    const term=kw.find(w=>!usedTerms.has(w) && !BAD_TERMS.has(w));
     if(term){
       usedTerms.add(term);
       const cap=term.charAt(0).toUpperCase()+term.slice(1);
@@ -453,6 +485,7 @@ function processOffline(text){
       if(/^[A-Z]/.test(w)) sc+=5;                 // proper nouns matter
       if(/(ing|ed|ly)$/.test(w)) sc-=4;           // avoid verbs/adverbs
       if(usedAns.has(w.toLowerCase())) sc-=50;    // no repeats
+      if(BAD_TERMS.has(w.toLowerCase())) sc-=30;   // avoid generic words/pronouns
       return {w,sc};
     }).sort((a,b)=>b.sc-a.sc);
     const best=scoredKw[0].w;
@@ -461,7 +494,7 @@ function processOffline(text){
     quiz.push({q:s.replace(new RegExp('\\b'+best+'\\b','gi'),'_______'), a:best});
   });
 
-  return {chunks:chunks.slice(0,8), keyPoints, cards, quiz};
+  return {chunks:chunks, keyPoints, cards, quiz};
 }
 
 // simple duplicate-sentence check (shared words ratio)
