@@ -662,43 +662,39 @@ function extractYTVideoId(url) {
   return null;
 }
 
-// Aggressively clean Jina/page scraped YouTube content
-function cleanYouTubePageText(raw) {
-  const lines = raw.split('\n');
-  const seen = new Set();
-  const good = [];
+// Parse clean XML transcript from youtubetranscript.com response
+function parseXMLTranscript(text) {
+  const matches = text.match(/<text[^>]*>([^<]+)<\/text>/g);
+  if (!matches || matches.length < 15) return null;
+  return matches
+    .map(m => m.replace(/<[^>]+>/g, '')
+      .replace(/&amp;/g,'&').replace(/&#39;/g,"'")
+      .replace(/&quot;/g,'"').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+      .replace(/\n/g,' ').trim())
+    .filter(t => t.length > 1)
+    .join(' ');
+}
 
-  for (let line of lines) {
-    // Strip markdown links [text](url) — keep only the text
-    line = line.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').trim();
-    // Strip remaining bare URLs
-    line = line.replace(/https?:\/\/\S+/g, '').trim();
-    // Strip markdown heading symbols
-    line = line.replace(/^#{1,6}\s+/, '').trim();
-    // Strip leading bullets/dashes
-    line = line.replace(/^[-*•]\s+/, '').trim();
-
-    // Skip empty lines
-    if (!line) continue;
-    // Skip pure timestamps like "0:00", "2:55", "1:23:07"
-    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(line)) continue;
-    // Skip lines that are only numbers
-    if (/^\d+$/.test(line)) continue;
-    // Skip very short lines (likely nav/UI noise)
-    if (line.length < 35) continue;
-    // Skip lines that look like "X views • Y ago" (related video metadata)
-    if (/\d+[KM]?\s+views/.test(line)) continue;
-    // Skip lines that are just social handles or emojis
-    if (/^[@#]/.test(line)) continue;
-    // De-duplicate
-    const key = line.toLowerCase().slice(0, 80);
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    good.push(line);
+// Extract only the Transcript section from a Jina.ai-scraped YouTube page
+function extractTranscriptSection(raw) {
+  // Find the transcript block: appears after "Transcript\n" and before Comments/related
+  const markers = [
+    /Transcript\s*\n+([\s\S]{200,}?)(?:\n{3,}|Comments|\d+K? views)/i,
+    /Show transcript\s*\n+([\s\S]{200,}?)(?:\n{3,}|Comments|Show less)/i,
+  ];
+  for (const m of markers) {
+    const match = raw.match(m);
+    if (match) {
+      // Clean the extracted section
+      return match[1]
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')  // strip MD links
+        .replace(/https?:\/\/\S+/g, '')             // strip URLs
+        .replace(/^\d{1,2}:\d{2}(:\d{2})?\s*/gm, '') // strip timestamps
+        .replace(/\n+/g, ' ')
+        .trim();
+    }
   }
-
-  return good.join(' ').replace(/\s{2,}/g, ' ').trim();
+  return null;
 }
 
 async function fetchYouTubeTranscript() {
@@ -708,82 +704,96 @@ async function fetchYouTubeTranscript() {
     statusEl.style.display = 'block';
     statusEl.innerHTML = msg;
     statusEl.style.color = color || 'var(--muted)';
-    statusEl.style.borderLeft = `3px solid ${color || 'var(--border)'}`;
-    statusEl.style.padding = '12px 14px';
+    statusEl.style.borderLeft = `4px solid ${color || 'var(--border)'}`;
+    statusEl.style.padding = '14px 16px';
     statusEl.style.background = 'var(--bg)';
     statusEl.style.borderRadius = '12px';
+    statusEl.style.lineHeight = '1.7';
   };
 
   if (!url) { alert('Please paste a YouTube URL first.'); return; }
   const videoId = extractYTVideoId(url);
-  if (!videoId) { alert('Could not find a valid YouTube video ID. URL should look like: https://www.youtube.com/watch?v=XXXXXXXXXXX'); return; }
+  if (!videoId) { alert('Could not find a YouTube video ID in that URL.'); return; }
 
-  showStatus('⏳ Fetching transcript — this may take a few seconds...', 'var(--primary)');
+  showStatus('⏳ Fetching transcript…', 'var(--primary)');
   window._ytTranscript = '';
 
-  // Strategy 1: youtubetranscript.com — returns clean XML with <text> tags
+  // ── Strategy 1: youtubetranscript.com (clean XML captions) ──────────────────
   try {
     const res = await fetch(`https://youtubetranscript.com/?server_vid2=${videoId}`);
     if (res.ok) {
       const text = await res.text();
-      const matches = text.match(/<text[^>]*>([^<]+)<\/text>/g);
-      if (matches && matches.length > 15) {
-        const transcript = matches
-          .map(m => m.replace(/<[^>]+>/g, '')
-            .replace(/&amp;/g,'&').replace(/&#39;/g,"'")
-            .replace(/&quot;/g,'"').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
-            .trim())
-          .filter(t => t.length > 1)
-          .join(' ');
+      const transcript = parseXMLTranscript(text);
+      if (transcript && transcript.length > 300) {
         window._ytTranscript = transcript;
-        showStatus(`✅ Transcript fetched! <b>${transcript.length.toLocaleString()} characters</b> of spoken content. Click "✨ Convert to Study Tools" to continue.`, 'var(--green)');
+        showStatus(`✅ <b>Transcript fetched!</b> ${transcript.length.toLocaleString()} characters of spoken content.<br>Click <b>✨ Convert to Study Tools</b> to continue.`, 'var(--green)');
         return;
       }
     }
   } catch(e) {}
 
-  // Strategy 2: Jina.ai — fetch page content then aggressively clean it
-  showStatus('⏳ Trying alternative fetch method...', 'var(--primary)');
+  // ── Strategy 2: Tactiq transcript API ──────────────────────────────────────
+  showStatus('⏳ Trying alternate source…', 'var(--primary)');
+  try {
+    const res = await fetch(`https://tactiq-apps.appspot.com/transcript?url=https://www.youtube.com/watch?v=${videoId}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.captions && data.captions.length > 10) {
+        const transcript = data.captions.map(c => c.text || '').filter(Boolean).join(' ');
+        if (transcript.length > 300) {
+          window._ytTranscript = transcript;
+          showStatus(`✅ <b>Transcript fetched!</b> ${transcript.length.toLocaleString()} characters.<br>Click <b>✨ Convert to Study Tools</b> to continue.`, 'var(--green)');
+          return;
+        }
+      }
+    }
+  } catch(e) {}
+
+  // ── Strategy 3: Jina.ai — extract ONLY the Transcript section ──────────────
+  showStatus('⏳ Trying page reader…', 'var(--primary)');
   try {
     const res = await fetch('https://r.jina.ai/https://www.youtube.com/watch?v=' + videoId, {
-      headers: { 'Accept': 'text/plain', 'X-Return-Format': 'text' }
-    });
-    if (res.ok) {
-      const raw = await res.text();
-      const cleaned = cleanYouTubePageText(raw);
-      // Cleaned content should be substantial and not just metadata noise
-      if (cleaned.length > 500) {
-        window._ytTranscript = cleaned;
-        showStatus(`✅ Content extracted! <b>${cleaned.length.toLocaleString()} characters</b>. Note: this may include video description rather than transcript. Click "✨ Convert" to continue.`, 'var(--yellow)');
-        return;
-      }
-    }
-  } catch(e) {}
-
-  // Strategy 3: Jina via youtubetranscript.com
-  try {
-    const res = await fetch(`https://r.jina.ai/https://youtubetranscript.com/?server_vid2=${videoId}`, {
       headers: { 'Accept': 'text/plain' }
     });
     if (res.ok) {
       const raw = await res.text();
-      // Extract transcript lines from the Jina-rendered transcript page
-      const cleaned = cleanYouTubePageText(raw);
-      if (cleaned.length > 400) {
-        window._ytTranscript = cleaned;
-        showStatus(`✅ Transcript fetched! <b>${cleaned.length.toLocaleString()} chars</b>. Click "✨ Convert" to continue.`, 'var(--green)');
+      // Only extract the transcript section — NOT the whole page
+      const section = extractTranscriptSection(raw);
+      if (section && section.length > 300) {
+        window._ytTranscript = section;
+        showStatus(`✅ <b>Transcript extracted!</b> ${section.length.toLocaleString()} characters.<br>Click <b>✨ Convert to Study Tools</b> to continue.`, 'var(--green)');
         return;
       }
     }
   } catch(e) {}
 
-  // All failed — show manual workaround
-  showStatus(`❌ Could not auto-fetch the transcript. This usually means captions are disabled or the video is private.<br><br>
-    <b>Quick workaround (30 sec):</b><br>
-    1. Open the video on YouTube<br>
-    2. Click the <b>⋮ menu</b> below the video → <em>Show transcript</em><br>
-    3. Click <b>Toggle timestamps</b> to hide them<br>
-    4. Select all transcript text → copy → paste into the 📝 Notes tab`, 'var(--accent)');
+  // ── All automatic methods failed — show paste-box fallback ─────────────────
+  showStatus(`
+    <b>⚠️ Auto-fetch failed</b> — captions may be disabled or the video is private.<br><br>
+    <b>Paste the transcript here directly (30 sec):</b><br>
+    <small>On YouTube: click <b>⋮ More</b> → <b>Show transcript</b> → select all text → copy</small><br>
+    <textarea id="ytPasteBox" rows="6" style="width:100%; margin-top:8px; padding:10px; border-radius:10px; border:2px solid var(--border); font-size:0.9rem; font-family:inherit; background:var(--card); color:var(--text); resize:vertical;" placeholder="Paste the YouTube transcript text here…"></textarea>
+    <button class="btn" style="margin-top:8px; padding:8px 18px; font-size:0.88rem;" onclick="useManualTranscript()">✅ Use This Transcript</button>
+  `, 'var(--accent)');
+}
+
+function useManualTranscript() {
+  const box = document.getElementById('ytPasteBox');
+  if (!box) return;
+  const text = box.value.trim();
+  if (text.length < 50) { alert('Please paste more transcript content first.'); return; }
+  // Clean timestamps from manually pasted transcripts
+  const cleaned = text
+    .replace(/^\d{1,2}:\d{2}(:\d{2})?\s*/gm, '')
+    .replace(/\n+/g, ' ')
+    .trim();
+  window._ytTranscript = cleaned;
+  const statusEl = document.getElementById('ytStatus');
+  if (statusEl) {
+    statusEl.innerHTML = `✅ <b>Transcript ready!</b> ${cleaned.length.toLocaleString()} characters. Click <b>✨ Convert to Study Tools</b> to continue.`;
+    statusEl.style.color = 'var(--green)';
+    statusEl.style.borderLeft = '4px solid var(--green)';
+  }
 }
 
 /* ---------- Offline converter (fallback) ---------- */
