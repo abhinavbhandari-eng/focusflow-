@@ -806,11 +806,35 @@ function renderOutput(r){
   document.getElementById('quizOut').innerHTML=r.quiz.map((q,i)=>`<div style="margin-bottom:14px;"><div class="quiz-q">Q${i+1}: ${esc(q.q)}</div><input type="text" id="ans${i}" placeholder="Your answer..."><button class="btn ghost" style="padding:8px 14px;font-size:0.85rem;" onclick="checkAns(${i})">Check</button> <span id="res${i}" style="font-weight:600;"></span></div>`).join('')||'<p class="empty">No quiz.</p>';
 }
 function checkAns(i){
+  window._attempts = window._attempts || {};
   const ans=(window._quiz[i].a||'').toString();
   const val=(document.getElementById('ans'+i).value||'').trim().toLowerCase();
   const res=document.getElementById('res'+i);
-  if(val && ans.toLowerCase().includes(val) && val.length>1){res.textContent='✅ Correct!';res.style.color='#2fbf71';}
-  else{res.textContent='➡️ Answer: '+ans;res.style.color='#ff8a5c';}
+  
+  if(!val){
+    res.textContent='⚠️ Type an answer first!';
+    res.style.color='var(--accent)';
+    return;
+  }
+  
+  const isCorrect = ans.toLowerCase().replace(/[^a-z0-9]/g, '') === val.replace(/[^a-z0-9]/g, '') || 
+                    (ans.toLowerCase().includes(val) && val.length > 2);
+                    
+  if(isCorrect){
+    res.textContent='✅ Correct!';
+    res.style.color='#2fbf71';
+    window._attempts[i] = 0; // reset
+  } else {
+    window._attempts[i] = (window._attempts[i] || 0) + 1;
+    if(window._attempts[i] < 2){
+      res.textContent = `❌ Try again! Hint: Starts with "${ans.charAt(0).toUpperCase()}" (${ans.length} letters)`;
+      res.style.color = '#ff8a5c';
+    } else {
+      res.textContent = `➡️ Answer: ${ans}`;
+      res.style.color = '#ff8a5c';
+      window._attempts[i] = 0; // reset
+    }
+  }
 }
 document.getElementById('clearBtn').onclick=()=>{
   document.getElementById('notesInput').value='';document.getElementById('linkInput').value='';
@@ -822,12 +846,62 @@ let tMode='focus',tRemaining=25*60,tTotal=25*60,tInt=null,sessions=0;
 const disp=document.getElementById('timerDisplay'),modeLbl=document.getElementById('timerMode'),prog=document.getElementById('timerProgress');
 function fmt(s){return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
 function updateTimer(){disp.textContent=fmt(tRemaining);prog.style.width=(100-(tRemaining/tTotal*100))+'%';}
+function playChime(success = true) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    const now = ctx.currentTime;
+    if (success) {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(523.25, now);
+      osc.frequency.setValueAtTime(659.25, now + 0.15);
+      osc.frequency.setValueAtTime(783.99, now + 0.3);
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.2, now + 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.6);
+      osc.start(now);
+      osc.stop(now + 0.6);
+    } else {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(783.99, now);
+      osc.frequency.setValueAtTime(659.25, now + 0.15);
+      osc.frequency.setValueAtTime(523.25, now + 0.3);
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.2, now + 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.6);
+      osc.start(now);
+      osc.stop(now + 0.6);
+    }
+  } catch(e) {
+    console.error("Audio Context failed", e);
+  }
+}
+
 function tick(){
   if(tRemaining>0){tRemaining--;updateTimer();}
-  else{clearInterval(tInt);tInt=null;
-    if(tMode==='focus'){sessions++;document.getElementById('sessionCount').textContent=sessions;alert('🎉 Focus session done! Take a break.');tMode='break';tTotal=tRemaining=(+document.getElementById('breakLen').value||5)*60;modeLbl.textContent='Break Time ☕';}
-    else{alert('Break over — ready to focus?');tMode='focus';tTotal=tRemaining=(+document.getElementById('focusLen').value||25)*60;modeLbl.textContent='Focus Time';}
-    updateTimer();}
+  else{
+    clearInterval(tInt);tInt=null;
+    if(tMode==='focus'){
+      sessions++;
+      document.getElementById('sessionCount').textContent=sessions;
+      playChime(true);
+      alert('🎉 Focus session done! Take a break.');
+      tMode='break';
+      tTotal=tRemaining=(+document.getElementById('breakLen').value||5)*60;
+      modeLbl.textContent='Break Time ☕';
+    } else {
+      playChime(false);
+      alert('Break over — ready to focus?');
+      tMode='focus';
+      tTotal=tRemaining=(+document.getElementById('focusLen').value||25)*60;
+      modeLbl.textContent='Focus Time';
+    }
+    updateTimer();
+  }
 }
 document.getElementById('startTimer').onclick=()=>{if(!tInt)tInt=setInterval(tick,1000);};
 document.getElementById('pauseTimer').onclick=()=>{clearInterval(tInt);tInt=null;};
