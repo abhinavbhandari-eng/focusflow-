@@ -1,7 +1,7 @@
 {
   "name": "FocusFlow — ADHD Study Companion",
   "short_name": "FocusFlow",
-  "start_url": "focusflow.html",
+  "start_url": "index.html",
   "display": "standalone",
   "background_color": "#f4f1fb",
   "theme_color": "#6c4ee0",

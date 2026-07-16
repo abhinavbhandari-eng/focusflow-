@@ -22,7 +22,7 @@ FocusFlow is a beautiful, interactive web application designed to help students 
 Since FocusFlow is a static single-page application (SPA), setting it up is incredibly easy:
 
 ### 1. Run Locally (Direct)
-Simply double-click the [focusflow.html](focusflow.html) file to open it in any web browser.
+Simply double-click the [index.html](index.html) file to open it in any web browser.
 
 ### 2. Run Locally (Local Server)
 To enable the Progressive Web App (PWA) installation features, the browser requires the app to be served over `http://localhost` or `https`. You can spin up a quick local server using Python, Node, or VS Code:
@@ -84,7 +84,7 @@ FocusFlow can be instantly deployed to the cloud via Vercel:
 
 ## 📁 File Structure
 
-*   [focusflow.html](focusflow.html) — Core application code containing HTML structure, Vanilla CSS styling, and Javascript application logic.
+*   [index.html](index.html) — Core application code containing HTML structure, Vanilla CSS styling, and Javascript application logic.
 *   [manifest.json](manifest.json) — PWA configuration specifying app colors, start URL, and icons.
 *   [sw.js](sw.js) — A lightweight service worker enabling PWA installation.
 *   [README.md](README.md) — Documentation and guide.

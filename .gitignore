@@ -4,3 +4,5 @@ test_api.js
 .env
 .env.local
 .DS_Store
+
+.vercel
