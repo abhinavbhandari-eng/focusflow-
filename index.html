@@ -428,7 +428,10 @@
     <div class="card">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
         <h2 style="margin:0;">❓ Quick Self-Quiz</h2>
-        <span id="quizScore" class="badge" style="background:var(--primary); padding:4px 12px;">0 / 0 Correct</span>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <span id="quizScore" class="badge" style="background:var(--primary); padding:4px 12px;">0 / 0 Correct</span>
+          <button class="btn ghost" style="padding:6px 12px; font-size:0.8rem; background:var(--primary-light); color:var(--primary); border:1px solid var(--primary); margin:0;" onclick="refreshQuiz()">🔄 Refresh Quiz</button>
+        </div>
       </div>
       <p class="muted" style="margin-top:4px;">Fill-in-the-blank practice — the #1 way to lock in learning.</p>
       <div id="quizOut" style="margin-top:12px;"></div>
@@ -779,9 +782,9 @@ function processOffline(text, randomized = false){
   let selected = [];
   if (randomized) {
     const shuffled = [...pool].sort(() => Math.random() - 0.5);
-    selected = shuffled.slice(0, 7);
+    selected = shuffled.slice(0, 10);
   } else {
-    selected = pool.slice(0, 7);
+    selected = pool.slice(0, 10);
   }
 
   selected.sort((a,b)=>a.idx-b.idx);
@@ -852,7 +855,7 @@ function processOffline(text, randomized = false){
   const quiz=[];
   const usedAns=new Set();
   keyPoints.filter(s=>!s.endsWith('?')).forEach(s=>{
-    if(quiz.length>=5) return;
+    if(quiz.length>=10) return;
     const kw=keywords(s);
     if(!kw.length) return;
     const scoredKw=kw.map(w=>{
@@ -893,7 +896,7 @@ async function processAI(text, key, customUrl, customModel){
  "chunks": [{"category": "Topic / Section Heading", "text": "short digestible paragraph"}], // 4-8 small chunks categorized under proper topic names/schemas
  "keyPoints": ["key point 1", "..."],                      // 5-7 crucial takeaways
  "cards": [{"q":"question","a":"answer"}],                 // 6-8 flashcards testing understanding
- "quiz": [{"q":"question ending in a blank or asking recall","a":"short answer"}]  // 5 quiz questions
+ "quiz": [{"q":"question ending in a blank or asking recall","a":"short answer"}]  // 5-10 quiz questions
 }
 Keep language simple, concrete, and ADHD-friendly. Material:\n\n${text.slice(0,12000)}`;
 
@@ -1277,6 +1280,25 @@ function refreshFlashcards(){
   const r = processOffline(window.activeText, true);
   document.getElementById('cardCount').textContent=r.cards.length;
   document.getElementById('cardsOut').innerHTML=r.cards.map(c=>`<div class="flashcard" onclick="this.classList.toggle('flipped')"><div class="flash-inner"><div class="flash-face flash-front">${esc(c.q)}</div><div class="flash-face flash-back">${esc(c.a)}</div></div></div>`).join('')||'<p class="empty">No cards.</p>';
+}
+
+function refreshQuiz(){
+  if(!window.activeText){
+    alert("Please convert some material first to refresh the quiz!");
+    return;
+  }
+  const r = processOffline(window.activeText, true);
+  window._quiz = r.quiz;
+  document.getElementById('quizScore').textContent = `0 / ${r.quiz.length} Correct`;
+  document.getElementById('quizOut').innerHTML = r.quiz.map((q,i)=>`
+    <div style="margin-bottom:18px; padding-bottom:14px; border-bottom:1.5px solid var(--border);">
+      <div class="quiz-q">Q${i+1}: ${esc(q.q)}</div>
+      <div class="row" style="margin-top:8px;">
+        <input type="text" id="ans${i}" placeholder="Your answer..." style="flex:1; max-width: 320px;">
+        <button class="btn ghost" style="padding:10px 18px; font-size:0.88rem; margin:0;" onclick="checkAns(${i})">Check</button>
+        <span id="res${i}" style="font-weight:600; font-size:0.92rem;"></span>
+      </div>
+    </div>`).join('') || '<p class="empty">No quiz.</p>';
 }
 renderReview();updateTimer();
 
