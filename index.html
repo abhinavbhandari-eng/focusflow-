@@ -699,7 +699,7 @@ document.getElementById('processBtn').onclick=async()=>{
   }
   btn.textContent='✨ Convert to Study Tools';
   renderOutput(r);
-  saveReviewSet(text.slice(0,50));
+  saveReviewSet(text.slice(0,50), text, r);
   document.getElementById('output').classList.remove('hidden');
   document.getElementById('output').scrollIntoView({behavior:'smooth'});
 };
@@ -753,18 +753,66 @@ document.getElementById('resetTimer').onclick=()=>{clearInterval(tInt);tInt=null
 document.getElementById('focusLen').onchange=()=>{if(tMode==='focus'&&!tInt){tTotal=tRemaining=(+document.getElementById('focusLen').value||25)*60;updateTimer();}};
 
 /* ---------- Spaced repetition ---------- */
-function saveReviewSet(name){
+function saveReviewSet(name, text, data){
   const sets=JSON.parse(localStorage.getItem('ffSets')||'[]');
-  sets.push({name:name||'Study set',created:Date.now(),intervals:[1,3,7,14],done:0});
-  localStorage.setItem('ffSets',JSON.stringify(sets));renderReview();
+  sets.push({
+    name: name||'Study set',
+    created: Date.now(),
+    intervals: [1,3,7,14],
+    done: 0,
+    text: text,
+    data: data
+  });
+  localStorage.setItem('ffSets',JSON.stringify(sets));
+  renderReview();
 }
+
+function loadReviewSet(i){
+  const sets=JSON.parse(localStorage.getItem('ffSets')||'[]');
+  const s=sets[i];
+  if(!s) return;
+  if(s.data){
+    renderOutput(s.data);
+  } else if(s.text){
+    const r=processOffline(s.text);
+    s.data=r;
+    localStorage.setItem('ffSets',JSON.stringify(sets));
+    renderOutput(r);
+  } else {
+    alert('This is an older review set with no study content saved. Please convert new material to study!');
+    return;
+  }
+  document.getElementById('output').classList.remove('hidden');
+  document.getElementById('output').scrollIntoView({behavior:'smooth'});
+}
+
 function renderReview(){
   const sets=JSON.parse(localStorage.getItem('ffSets')||'[]');
   const list=document.getElementById('reviewList');
   if(!sets.length){list.innerHTML='<p class="empty">No sets yet. Convert material to create one.</p>';return;}
-  list.innerHTML=sets.map((s,i)=>{const nd=s.intervals[Math.min(s.done,s.intervals.length-1)];const due=new Date(s.created+nd*86400000).toLocaleDateString();return `<div class="review-item"><div><b>${esc(s.name)}${s.name.length>=50?'…':''}</b><br><span class="muted">Next: ${due} (in ${nd}d) · reviewed ${s.done}×</span></div><button class="btn ghost" style="padding:8px 12px;font-size:0.8rem;" onclick="markReviewed(${i})">✔ Reviewed</button></div>`;}).join('');
+  list.innerHTML=sets.map((s,i)=>{
+    const nd=s.intervals[Math.min(s.done,s.intervals.length-1)];
+    const due=new Date(s.created+nd*86400000).toLocaleDateString();
+    return `<div class="review-item" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+      <div>
+        <b>${esc(s.name)}${s.name.length>=50?'…':''}</b><br>
+        <span class="muted">Next: ${due} (in ${nd}d) · reviewed ${s.done}×</span>
+      </div>
+      <div style="display:flex; gap:6px;">
+        <button class="btn ghost" style="padding:8px 12px;font-size:0.8rem;background:var(--primary-light);color:var(--primary);" onclick="loadReviewSet(${i})">📖 Study</button>
+        <button class="btn ghost" style="padding:8px 12px;font-size:0.8rem;" onclick="markReviewed(${i})">✔ Reviewed</button>
+      </div>
+    </div>`;
+  }).join('');
 }
-function markReviewed(i){const sets=JSON.parse(localStorage.getItem('ffSets')||'[]');sets[i].done++;sets[i].created=Date.now();localStorage.setItem('ffSets',JSON.stringify(sets));renderReview();}
+
+function markReviewed(i){
+  const sets=JSON.parse(localStorage.getItem('ffSets')||'[]');
+  sets[i].done++;
+  sets[i].created=Date.now();
+  localStorage.setItem('ffSets',JSON.stringify(sets));
+  renderReview();
+}
 renderReview();updateTimer();
 
 /* ---------- PWA install ---------- */
