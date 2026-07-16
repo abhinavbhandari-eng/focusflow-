@@ -441,19 +441,46 @@
   <!-- TIMER -->
   <div class="card">
     <h2>⏱️ Focus Timer (Pomodoro)</h2>
-    <div class="timer-mode" id="timerMode">Focus Time</div>
-    <div class="timer-display" id="timerDisplay">25:00</div>
-    <div class="progress-bar"><div class="progress-fill" id="timerProgress"></div></div>
-    <div class="row" style="justify-content:center;">
+    
+    <!-- Circular progress ring indicator -->
+    <div style="position:relative; width:180px; height:180px; margin:20px auto; display:flex; align-items:center; justify-content:center;">
+      <svg width="180" height="180" viewBox="0 0 180 180" style="transform: rotate(-90deg); position:absolute; top:0; left:0;">
+        <circle cx="90" cy="90" r="80" stroke="var(--primary-light)" stroke-width="8" fill="transparent" />
+        <circle id="timerRing" cx="90" cy="90" r="80" stroke="var(--primary)" stroke-width="8" fill="transparent" 
+                stroke-dasharray="502.65" stroke-dashoffset="502.65" stroke-linecap="round" style="transition: stroke-dashoffset 1s linear;" />
+      </svg>
+      <div style="z-index:2; text-align:center;">
+        <div class="timer-mode" id="timerMode" style="font-size:0.75rem; margin:0;">Focus Time</div>
+        <div class="timer-display" id="timerDisplay" style="font-size:2.4rem; font-weight:800; color:var(--primary); margin:2px 0;">25:00</div>
+        <p class="muted" style="font-size:0.7rem; font-weight:600; margin:0;">Sessions: <b id="sessionCount">0</b> 🍅</p>
+      </div>
+    </div>
+
+    <!-- Timer Controls -->
+    <div class="row" style="justify-content:center; gap:10px;">
       <button class="btn" id="startTimer">Start</button>
       <button class="btn ghost" id="pauseTimer">Pause</button>
       <button class="btn secondary" id="resetTimer">Reset</button>
     </div>
-    <div class="row" style="justify-content:center; margin-top:10px;">
-      <label class="muted">Focus min: <input type="text" id="focusLen" value="25" style="width:50px; text-align:center;"></label>
-      <label class="muted">Break min: <input type="text" id="breakLen" value="5" style="width:50px; text-align:center;"></label>
+
+    <!-- Custom durations inputs -->
+    <div class="row" style="justify-content:center; margin-top:16px; gap:16px;">
+      <label class="muted" style="display:flex; align-items:center; gap:6px;">Focus min: <input type="text" id="focusLen" value="25" style="width:50px; text-align:center; padding:6px; border-radius:8px;"></label>
+      <label class="muted" style="display:flex; align-items:center; gap:6px;">Break min: <input type="text" id="breakLen" value="5" style="width:50px; text-align:center; padding:6px; border-radius:8px;"></label>
     </div>
-    <p class="muted" style="text-align:center; margin-top:8px;">Completed focus sessions: <b id="sessionCount">0</b> 🍅</p>
+
+    <!-- Presets -->
+    <div style="display:flex; justify-content:center; gap:8px; margin-top:14px;">
+      <span class="muted" style="align-self:center; font-weight:600;">Presets:</span>
+      <button class="btn ghost" style="padding:6px 12px; font-size:0.8rem; margin:0;" onclick="setTimerPreset(25, 5)">25/5m</button>
+      <button class="btn ghost" style="padding:6px 12px; font-size:0.8rem; margin:0;" onclick="setTimerPreset(50, 10)">50/10m</button>
+      <button class="btn ghost" style="padding:6px 12px; font-size:0.8rem; margin:0;" onclick="setTimerPreset(15, 3)">15/3m</button>
+    </div>
+
+    <!-- Audio Test -->
+    <div style="text-align:center; margin-top:12px;">
+      <button class="btn ghost" style="padding:4px 10px; font-size:0.72rem; background:transparent; border:1px dashed var(--muted); color:var(--muted); margin:0;" onclick="playChime(true)">🔊 Test Alert Sound</button>
+    </div>
   </div>
 
   <!-- REVIEW -->
@@ -1121,9 +1148,26 @@ document.getElementById('clearBtn').onclick=()=>{
 
 /* ---------- Pomodoro ---------- */
 let tMode='focus',tRemaining=25*60,tTotal=25*60,tInt=null,sessions=0;
-const disp=document.getElementById('timerDisplay'),modeLbl=document.getElementById('timerMode'),prog=document.getElementById('timerProgress');
+const disp=document.getElementById('timerDisplay'),modeLbl=document.getElementById('timerMode'),ring=document.getElementById('timerRing');
 function fmt(s){return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
-function updateTimer(){disp.textContent=fmt(tRemaining);prog.style.width=(100-(tRemaining/tTotal*100))+'%';}
+function updateTimer(){
+  disp.textContent=fmt(tRemaining);
+  const ratio = tRemaining / tTotal;
+  const offset = 502.65 * (1 - ratio);
+  if(ring) {
+    ring.style.strokeDashoffset = offset;
+  }
+}
+function setTimerPreset(f, b){
+  clearInterval(tInt);
+  tInt=null;
+  document.getElementById('focusLen').value = f;
+  document.getElementById('breakLen').value = b;
+  tMode='focus';
+  tTotal=tRemaining=f*60;
+  modeLbl.textContent='Focus Time';
+  updateTimer();
+}
 function playChime(success = true) {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
